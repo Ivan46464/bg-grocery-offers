@@ -9,7 +9,7 @@
  *
  * You can also set EXPO_PUBLIC_API_URL in a `.env` file instead of editing this.
  */
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://YOUR-SERVICE-NAME.onrender.com").replace(/\/$/, "");
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://bg-grocery-offers-api.onrender.com").replace(/\/$/, "");
 
 /** How long to wait after the user stops typing before searching (ms). */
 export const SEARCH_DEBOUNCE_MS = 400;
