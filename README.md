@@ -149,7 +149,10 @@ git push -u origin main
    `https://bg-grocery-offers-api.onrender.com` (copy it — the app needs it).
 4. Check: `https://<your-url>/api/stores` should list 4 stores with counts.
 
-Every `git push` to `main` redeploys automatically.
+**Current deployment:** `https://bg-grocery-offers-api.onrender.com`, created from the public repo URL
+(GitHub account not connected to Render). That mode has **no auto-deploy**: after a `git push`, open the
+service on https://dashboard.render.com → **Manual Deploy → Deploy latest commit**. To get auto-deploy on push,
+connect your GitHub account in Render (Settings → Git provider) and re-link the repo.
 
 ### 2.3 Note on the database
 
@@ -215,14 +218,17 @@ eas login
 ```bash
 eas init
 ```
-`eas init` links the folder to a project on expo.dev and writes `extra.eas.projectId` into `app.json`. Accept the defaults.
+`eas init` links the folder to a project on expo.dev and writes `extra.eas.projectId` into `app.json`
+(already done for this repo: project `@ivan464/bg-grocery-offers`). If the interactive prompt gives you
+trouble, `eas init --non-interactive --force` does the same without asking.
 
 ```bash
 eas build -p android --profile preview
 ```
 
 * The `preview` profile in `eas.json` sets `buildType: "apk"`, so you get an installable `.apk` (not a Play-Store `.aab`).
-* First time it asks *"Generate a new Android Keystore?"* → **Yes** (EAS stores it for you).
+* First time it asks *"Generate a new Android Keystore?"* → **Yes** (EAS stores it for you). Already done here;
+  `--non-interactive` also works and generates the keystore in the cloud.
 * The build runs on Expo's servers (free tier: ~30 builds/month, queue time varies). You'll see a link like
   `https://expo.dev/accounts/<you>/projects/bg-grocery-offers/builds/<id>`.
 * When it finishes, the terminal prints a **download URL** and shows a QR code. Open it on your phone
