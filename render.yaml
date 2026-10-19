@@ -1,0 +1,19 @@
+# Render "Blueprint" - lets you deploy with one click from the Render dashboard
+# (New + > Blueprint > pick this repo). You can also skip this file and fill in
+# the same values by hand in the "New Web Service" form - see README.
+services:
+  - type: web
+    name: bg-grocery-offers-api
+    runtime: python
+    plan: free
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.12.7"
+      - key: SCRAPE_INTERVAL_HOURS
+        value: "12"
+      - key: REFRESH_TOKEN
+        generateValue: true       # Render creates a random secret; copy it for your cron job
