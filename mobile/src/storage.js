@@ -26,8 +26,13 @@ async function write(key, value) {
   } catch {}
 }
 
-export const loadCart = () => read(KEYS.cart, []);
+/** Cart items are { id, name, barcode?, image_url?, exact }. Old installs stored plain strings - migrate. */
+export const loadCart = async () => {
+  const items = await read(KEYS.cart, []);
+  return items.map((it) => (typeof it === "string" ? { id: it, name: it, exact: false } : it));
+};
 export const saveCart = (items) => write(KEYS.cart, items);
+export const cartItemId = (p) => p.barcode || p.name.toLowerCase().trim();
 
 export const loadRecent = () => read(KEYS.recent, []);
 export const pushRecent = async (q) => {

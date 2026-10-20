@@ -21,6 +21,7 @@ from typing import Optional
 import httpx
 from sqlmodel import Session, select
 
+from catalog import match_offers
 from models import Offer, Watch, utcnow
 from search import price_of, search_offers
 
@@ -31,7 +32,10 @@ EXPO_PUSH_URL = "https://exp.host/--/api/v2/push/send"
 
 def best_match(watch: Watch, offers: list[Offer]) -> Optional[Offer]:
     pool = [o for o in offers if not watch.store or o.store.lower() == watch.store.lower()]
-    hits = search_offers(pool, watch.query, sort="price")
+    if watch.exact or watch.barcode:
+        hits = match_offers(pool, watch.query, watch.barcode)      # specific product: EAN / strict name
+    else:
+        hits = search_offers(pool, watch.query, sort="price")      # free word: anything that fits
     return hits[0][0] if hits else None
 
 

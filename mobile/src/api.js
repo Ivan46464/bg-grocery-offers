@@ -69,15 +69,24 @@ export const getOfferHistory = (id, opts) => request(`/api/offers/${id}/history`
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);
 
+// ---- catalog -------------------------------------------------------------
+/** Specific products (with images) to pick from: current offers + METRO catalogue. */
+export const catalogSearch = (q, { limit = 20, signal } = {}) => request(`/api/catalog/search${qs({ q, limit })}`, { signal });
+
 // ---- cart ----------------------------------------------------------------
+/** items: [{ name, barcode?, image_url?, exact? }] or plain strings */
 export const optimizeCart = (items, opts) => request("/api/cart/optimize", { method: "POST", body: { items }, ...opts });
 
 // ---- watchlist -----------------------------------------------------------
 export const registerPush = (token, platform = "android") =>
   request("/api/push/register", { method: "POST", body: { token, platform } });
 export const listWatches = (token, opts) => request(`/api/watch${qs({ token })}`, opts);
-export const createWatch = (token, query, target_price, store) =>
-  request("/api/watch", { method: "POST", body: { token, query, target_price, store } });
+/** product: { name, barcode?, image_url?, exact? } */
+export const createWatch = (token, product, target_price = null, store = null) =>
+  request("/api/watch", {
+    method: "POST",
+    body: { token, query: product.name, barcode: product.barcode ?? null, image_url: product.image_url ?? null, exact: !!product.exact, target_price, store },
+  });
 export const deleteWatch = (id, token) => request(`/api/watch/${id}${qs({ token })}`, { method: "DELETE" });
 
 /**

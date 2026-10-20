@@ -7,9 +7,9 @@ Search the weekly promotions of **Lidl, Kaufland, Billa and Metro** in one place
 | Tab | What it does |
 |-----|--------------|
 | **Оферти** | Fuzzy search (BG / EN / Latin-letter typing, typo-tolerant), cheapest first. Quick-filter chips: Постни, Био, Млечни, Месо, Плодове, Напитки, Хляб, Сладко, Дом. Store chips, sort by price or discount. Tap an offer → details, 90-day price trend, add to cart / watch. |
-| **Количка** | Smart cart: type what you need → *best single store* (fewest missing items, lowest total) and *best split trip* (each item where it's cheapest) with the € saved. |
+| **Количка** | Smart cart: pick **specific products with pictures** (current offers + METRO's full catalogue, `/api/catalog/search`) → *best single store* (fewest missing items, lowest total) and *best split trip* (each item where it's cheapest) with the € saved. Items are matched across stores by EAN or strict name match, so "Маджаров кашкавал" never becomes a croissant with cheese. A free word ("яйца") is still allowed for generic needs. |
 | **Скенер** | Point the camera at an EAN-13 in the store → exact barcode matches (Metro, Kaufland publish them) or name matches via Open Food Facts → "cheaper elsewhere?" |
-| **Наблюдение** | Watchlist: product + optional target price. Re-checked after every scrape; push notification (needs FCM, see §6) or in-app alert. |
+| **Наблюдение** | Watchlist of **specific products** (picked with a picture, matched by EAN / strict name) + optional target price. Re-checked after every scrape; push notification (needs FCM, see §6) or in-app alert. |
 | Fake-discount detector | Every scrape is appended to `price_history`; an offer gets a green **Най-ниска за 90 дни** badge or an amber **Беше X €** warning when it was cheaper recently. |
 
 ```
@@ -23,6 +23,7 @@ Market/
 │   ├── tags.py         keyword → category chips (постни, млечни, …)
 │   ├── history.py      price history + 90-day-low detection
 │   ├── cart.py         smart-cart optimiser
+│   ├── catalog.py      product picker search (offers + METRO catalogue) + strict cross-store matching
 │   ├── barcode.py      EAN lookup (+ Open Food Facts fallback)
 │   ├── push.py         watchlist evaluation + Expo push
 │   └── requirements.txt
@@ -108,7 +109,8 @@ python scraper.py
 | GET | `/api/offers` | `store`, `tag`, `sort=price\|discount\|newest`, `limit`, `offset` | browse without a query |
 | GET | `/api/offers/{id}/history` | `days` | price points for the trend line |
 | GET | `/api/barcode/{ean}` | – | exact + similar offers for a scanned code |
-| POST | `/api/cart/optimize` | `{"items": ["яйца","мляко"]}` | best single store + best split trip |
+| GET | `/api/catalog/search` | `q`, `limit` | specific products to pick (offers + METRO catalogue), with image + EAN |
+| POST | `/api/cart/optimize` | `{"items": [{"name","barcode","exact":true}, "яйца"]}` | best single store + best split trip |
 | POST | `/api/push/register` | `{"token": "ExponentPushToken[..]"}` | save a push token |
 | GET/POST/DELETE | `/api/watch` | `token`, `{"token","query","target_price"}` | watchlist |
 | GET | `/api/stores` | – | per-store count, `is_mock`, `last_scraped` |

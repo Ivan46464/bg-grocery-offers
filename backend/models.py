@@ -10,7 +10,7 @@ Tables
 """
 import re
 from datetime import date, datetime, timezone
-from typing import Optional
+from typing import Optional, Union
 
 from sqlmodel import Field, SQLModel
 
@@ -92,7 +92,10 @@ class Watch(SQLModel, table=True):
 
     id: Optional[int] = Field(default=None, primary_key=True)
     token: str = Field(index=True)                  # owner (push token / device id)
-    query: str                                      # "кафе", "сирене маджаров", ...
+    query: str                                      # product name (specific) or a free word
+    barcode: Optional[str] = None                   # when set, matching is exact by EAN
+    image_url: Optional[str] = None
+    exact: bool = False                             # True = a specific product was picked (strict matching)
     target_price: Optional[float] = None            # alert when price <= target; None = any promo
     store: Optional[str] = None                     # optional store restriction
     created_at: datetime = Field(default_factory=utcnow)
@@ -174,14 +177,34 @@ class TagInfo(SQLModel):
     count: int
 
 
+# ---- catalog ----------------------------------------------------------------
+class CatalogItem(SQLModel):
+    name: str
+    image_url: Optional[str] = None
+    barcode: Optional[str] = None
+    source: str = "offer"                           # "offer" (on promo now) | "catalog" (known product, no promo)
+    store: Optional[str] = None
+    price: Optional[float] = None
+    offer_id: Optional[int] = None
+    score: Optional[int] = None
+
+
 # ---- cart -------------------------------------------------------------------
+class CartItem(SQLModel):
+    name: str                                       # specific product name, or a free word ("яйца")
+    barcode: Optional[str] = None
+    image_url: Optional[str] = None
+    exact: bool = False                             # picked from the catalog -> strict matching
+
+
 class CartRequest(SQLModel):
-    items: list[str]                                # ["яйца", "мляко", "кафе"]
+    items: list[Union[str, CartItem]]               # strings are treated as free words
     stores: Optional[list[str]] = None              # restrict to these stores (default: all)
 
 
 class CartItemMatch(SQLModel):
     item: str
+    image_url: Optional[str] = None
     offer: Optional[OfferRead] = None               # best offer for this item at this store (None = not on promo)
 
 
@@ -200,7 +223,7 @@ class CartSplitStop(SQLModel):
 
 
 class CartResponse(SQLModel):
-    items: list[str]
+    items: list[CartItem]
     best_single_store: Optional[CartStorePlan]
     stores: list[CartStorePlan]                     # every store, cheapest first
     best_split: list[CartSplitStop]
@@ -227,6 +250,9 @@ class PushRegister(SQLModel):
 class WatchCreate(SQLModel):
     token: str
     query: str
+    barcode: Optional[str] = None
+    image_url: Optional[str] = None
+    exact: bool = False
     target_price: Optional[float] = None
     store: Optional[str] = None
 
@@ -234,6 +260,9 @@ class WatchCreate(SQLModel):
 class WatchRead(SQLModel):
     id: int
     query: str
+    barcode: Optional[str] = None
+    image_url: Optional[str] = None
+    exact: bool = False
     target_price: Optional[float]
     store: Optional[str]
     created_at: datetime

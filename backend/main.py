@@ -41,12 +41,14 @@ from sqlmodel import Session, func, select
 
 import barcode as barcode_mod
 from cart import optimize
+from catalog import catalog_search
 from database import engine, get_session, init_db
 from history import history_for
 from models import (
     BarcodeResponse,
     CartRequest,
     CartResponse,
+    CatalogItem,
     HistoryPoint,
     Offer,
     OfferHistory,
@@ -318,6 +320,13 @@ def barcode_lookup(code: str, session: Session = Depends(get_session)):
     )
 
 
+# ---- catalog ----------------------------------------------------------------
+@app.get("/api/catalog/search", response_model=list[CatalogItem], tags=["catalog"])
+def catalog_lookup(q: str = Query(..., min_length=2, max_length=80), limit: int = Query(20, ge=1, le=50), session: Session = Depends(get_session)):
+    """Specific products to pick for the cart / watchlist: current offers + METRO's catalogue."""
+    return catalog_search(session.exec(select(Offer)).all(), q, limit)
+
+
 # ---- cart -------------------------------------------------------------------
 @app.post("/api/cart/optimize", response_model=CartResponse, tags=["cart"])
 def cart_optimize(req: CartRequest, session: Session = Depends(get_session)):
@@ -349,6 +358,9 @@ def _watch_read(w: Watch, offers: list[Offer]) -> WatchRead:
     return WatchRead(
         id=w.id,
         query=w.query,
+        barcode=w.barcode,
+        image_url=w.image_url,
+        exact=w.exact,
         target_price=w.target_price,
         store=w.store,
         created_at=w.created_at,
@@ -373,7 +385,8 @@ def create_watch(body: WatchCreate, session: Session = Depends(get_session)):
     count = len(session.exec(select(Watch.id).where(Watch.token == body.token)).all())
     if count >= 50:
         raise HTTPException(400, "max 50 watches per device")
-    w = Watch(token=body.token, query=q, target_price=body.target_price, store=body.store)
+    w = Watch(token=body.token, query=q, barcode=body.barcode, image_url=body.image_url, exact=body.exact,
+              target_price=body.target_price, store=body.store)
     session.add(w)
     session.commit()
     session.refresh(w)

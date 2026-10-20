@@ -16,9 +16,8 @@ import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
-import { getDeviceToken, loadCart, saveCart } from "../storage";
-import { colors } from "../theme";
-import { shortQuery } from "../utils";
+import { cartItemId, getDeviceToken, loadCart, loadPushToken, saveCart } from "../storage";
+import { colors, radius } from "../theme";
 
 export default function SearchScreen({ navigation }) {
   const { ready, status, seconds, error: coldError, retry } = useColdStart();
@@ -69,20 +68,24 @@ export default function SearchScreen({ navigation }) {
     return () => clearTimeout(t);
   }, [ready, query, store, tag, sort, load]);
 
+  // Both actions store the SPECIFIC product (name + barcode + picture), not a loose word.
+  const asProduct = (offer) => ({ name: offer.product_name, barcode: offer.barcode || null, image_url: offer.image_url || null, exact: true });
+
   const addToCart = async (offer) => {
     const items = await loadCart();
-    const q = shortQuery(offer.product_name);
-    if (!items.includes(q)) await saveCart([...items, q]);
+    const p = asProduct(offer);
+    const id = cartItemId(p);
+    if (!items.some((x) => x.id === id)) await saveCart([...items, { ...p, id }]);
     setSelected(null);
-    toast(`„${q}“ е в количката`, "cart");
+    toast("Добавено в количката", "cart");
   };
 
   const watchOffer = async (offer) => {
     try {
-      const token = await getDeviceToken();
-      await createWatch(token, shortQuery(offer.product_name), offer.discounted_price, null);
+      const token = (await loadPushToken()) || (await getDeviceToken());
+      await createWatch(token, asProduct(offer), offer.effective_price || offer.discounted_price, null);
       setSelected(null);
-      toast("Ще следим цената", "notifications");
+      toast("Ще следим цената на този продукт", "notifications");
     } catch (e) {
       toast(e.message, "alert-circle");
     }
@@ -92,7 +95,6 @@ export default function SearchScreen({ navigation }) {
   const liveStores = status?.stores?.filter((s) => s.offers > 0 && !s.is_mock).length ?? 0;
 
   const tagItems = [{ key: null, label: "Всички" }, ...tags.map((t) => ({ key: t.tag, label: t.label, count: t.count, color: colors.primary }))];
-  const storeItems = [{ key: null, label: "Всички магазини" }, ...STORE_ORDER.map((s) => ({ key: s, label: s, color: STORES[s].bg, fg: STORES[s].fg }))];
 
   let content;
   if (!ready) {
@@ -122,15 +124,9 @@ export default function SearchScreen({ navigation }) {
         onScrollBeginDrag={Keyboard.dismiss}
         initialNumToRender={8}
         ListHeaderComponent={
-          <View style={styles.listHeader}>
-            <Text style={styles.resultsLabel}>
-              {isSearching ? `${offers.length} оферти за „${query.trim()}“` : tag ? `${offers.length} оферти` : "Най-евтините оферти тази седмица"}
-            </Text>
-            <Pressable onPress={() => setSort(sort === "price" ? "discount" : "price")} style={styles.sortBtn} hitSlop={8}>
-              <Ionicons name="swap-vertical" size={14} color={colors.primary} />
-              <Text style={styles.sortText}>{sort === "price" ? "по цена" : "по отстъпка"}</Text>
-            </Pressable>
-          </View>
+          <Text style={styles.resultsLabel}>
+            {isSearching ? `${offers.length} оферти за „${query.trim()}“` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините оферти тази седмица" : "Най-големите отстъпки тази седмица"}
+          </Text>
         }
         refreshing={loading}
         onRefresh={() => load(query, store, tag, sort)}
@@ -141,8 +137,8 @@ export default function SearchScreen({ navigation }) {
   return (
     <View style={styles.screen}>
       <ScreenHeader
-        title="Оферти"
-        subtitle={status ? `${status.total_offers} промоции · ${liveStores}/4 магазина с реални данни` : "Lidl · Kaufland · Billa · Metro"}
+        title="BG Оферти"
+        subtitle={status ? `${status.total_offers} промоции тази седмица · ${liveStores}/4 магазина` : "Lidl · Kaufland · Billa · Metro"}
         right={
           <Pressable onPress={() => navigation.navigate("Scanner")} style={styles.scanBtn} hitSlop={8}>
             <Ionicons name="barcode-outline" size={22} color={colors.headerInk} />
@@ -153,9 +149,27 @@ export default function SearchScreen({ navigation }) {
       </ScreenHeader>
 
       {ready && (
-        <View style={styles.filters}>
-          <Chips items={tagItems} value={tag} onChange={setTag} />
-          <Chips items={storeItems} value={store} onChange={setStore} style={{ paddingTop: 0 }} />
+        <View style={styles.toolbar}>
+          {/* store toggles: coloured circles with the store initial */}
+          <View style={styles.storeRow}>
+            {STORE_ORDER.map((s) => {
+              const active = store === s;
+              const dim = store && !active;
+              return (
+                <Pressable key={s} onPress={() => setStore(active ? null : s)} style={[styles.storeChip, { backgroundColor: STORES[s].bg, opacity: dim ? 0.35 : 1 }, active && styles.storeChipActive]} hitSlop={4}>
+                  <Text style={[styles.storeChipText, { color: STORES[s].fg }]}>{STORES[s].short}</Text>
+                </Pressable>
+              );
+            })}
+            <Text style={styles.storeLabel} numberOfLines={1}>
+              {store ? `само ${store}` : "всички магазини"}
+            </Text>
+            <Pressable onPress={() => setSort(sort === "price" ? "discount" : "price")} style={styles.sortBtn} hitSlop={8}>
+              <Ionicons name="swap-vertical" size={14} color={colors.primary} />
+              <Text style={styles.sortText}>{sort === "price" ? "по цена" : "по отстъпка"}</Text>
+            </Pressable>
+          </View>
+          <Chips items={tagItems} value={tag} onChange={setTag} style={{ paddingVertical: 8 }} />
         </View>
       )}
 
@@ -168,12 +182,16 @@ export default function SearchScreen({ navigation }) {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  filters: { paddingTop: 10 },
+  toolbar: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border, paddingTop: 10 },
+  storeRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16 },
+  storeChip: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
+  storeChipActive: { borderWidth: 2.5, borderColor: colors.ink },
+  storeChipText: { fontWeight: "900", fontSize: 13 },
+  storeLabel: { flex: 1, fontSize: 12, color: colors.ink3, marginLeft: 4 },
   content: { flex: 1 },
-  list: { paddingHorizontal: 16, paddingTop: 6, paddingBottom: 24 },
-  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 10, marginTop: 4 },
-  resultsLabel: { fontSize: 13, color: colors.ink2, flex: 1 },
-  sortBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.primarySoft },
+  list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
+  resultsLabel: { fontSize: 13, color: colors.ink2, marginBottom: 10 },
+  sortBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
   sortText: { fontSize: 12, fontWeight: "700", color: colors.primary },
-  scanBtn: { width: 42, height: 42, borderRadius: 21, backgroundColor: "rgba(255,255,255,0.1)", alignItems: "center", justifyContent: "center" },
+  scanBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },
 });

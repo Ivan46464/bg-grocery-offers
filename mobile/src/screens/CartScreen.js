@@ -1,28 +1,27 @@
 /**
- * Smart cart: type the things you need, we tell you the cheapest single store
- * and the cheapest split across stores (with what you save).
+ * Smart cart: pick SPECIFIC products (with pictures) and we tell you the
+ * cheapest single store and the cheapest split across stores (with savings).
  */
 import React, { useCallback, useState } from "react";
-import { ActivityIndicator, Keyboard, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { ActivityIndicator, Image, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useFocusEffect } from "@react-navigation/native";
 import { optimizeCart } from "../api";
 import EmptyState from "../components/EmptyState";
 import OfferSheet from "../components/OfferSheet";
+import ProductPicker from "../components/ProductPicker";
 import ScreenHeader from "../components/ScreenHeader";
 import StoreBadge from "../components/StoreBadge";
 import { useToast } from "../components/Toast";
 import { STORES } from "../config";
-import { loadCart, saveCart } from "../storage";
+import { cartItemId, loadCart, saveCart } from "../storage";
 import { colors, money, radius, shadow } from "../theme";
 import { plural } from "../utils";
-
-const SUGGESTIONS = ["яйца", "мляко", "кафе", "сирене", "кашкавал", "хляб", "банани", "пилешко", "олио", "бира"];
 
 export default function CartScreen() {
   const toast = useToast();
   const [items, setItems] = useState([]);
-  const [text, setText] = useState("");
+  const [picker, setPicker] = useState(false);
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -30,7 +29,10 @@ export default function CartScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadCart().then(setItems);
+      loadCart().then((it) => {
+        setItems(it);
+        setResult(null);
+      });
     }, [])
   );
 
@@ -39,20 +41,20 @@ export default function CartScreen() {
     setResult(null);
     saveCart(next);
   };
-  const add = (raw) => {
-    const q = (raw ?? text).trim().toLowerCase();
-    if (!q) return;
-    if (!items.includes(q)) persist([...items, q]);
-    setText("");
+  const add = (p) => {
+    const id = cartItemId(p);
+    setPicker(false);
+    if (items.some((x) => x.id === id)) return toast("Вече е в количката", "cart");
+    persist([...items, { ...p, id }]);
+    toast(`Добавено: ${p.name.slice(0, 40)}`, "cart");
   };
-  const remove = (q) => persist(items.filter((x) => x !== q));
+  const remove = (id) => persist(items.filter((x) => x.id !== id));
 
   const run = async () => {
-    Keyboard.dismiss();
     setLoading(true);
     setError(null);
     try {
-      setResult(await optimizeCart(items));
+      setResult(await optimizeCart(items.map(({ name, barcode, image_url, exact }) => ({ name, barcode, image_url, exact }))));
     } catch (e) {
       setError(e.message);
     } finally {
@@ -64,52 +66,36 @@ export default function CartScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Умна количка" subtitle="Къде е най-евтино да напазаруваш всичко">
-        <View style={styles.inputRow}>
-          <Ionicons name="add-circle-outline" size={20} color={colors.ink3} />
-          <TextInput
-            style={styles.input}
-            value={text}
-            onChangeText={setText}
-            onSubmitEditing={() => add()}
-            placeholder="Добави продукт… напр. яйца"
-            placeholderTextColor={colors.ink3}
-            returnKeyType="done"
-            blurOnSubmit={false}
-            autoCapitalize="none"
-          />
-          <Pressable onPress={() => add()} style={styles.addBtn}>
-            <Text style={styles.addBtnText}>Добави</Text>
-          </Pressable>
-        </View>
+      <ScreenHeader title="Умна количка" subtitle="Къде е най-евтино да напазаруваш всичко" icon="basket">
+        <Pressable onPress={() => setPicker(true)} style={({ pressed }) => [styles.addBar, pressed && { opacity: 0.85 }]}>
+          <Ionicons name="add-circle" size={22} color={colors.primary} />
+          <Text style={styles.addBarText}>Добави продукт…</Text>
+          <Ionicons name="images-outline" size={18} color={colors.ink3} />
+        </Pressable>
       </ScreenHeader>
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {items.length === 0 ? (
-          <View>
-            <EmptyState icon="basket-outline" title="Списъкът е празен" subtitle="Добави няколко продукта или избери от предложенията:" />
-            <View style={styles.suggest}>
-              {SUGGESTIONS.map((s) => (
-                <Pressable key={s} onPress={() => add(s)} style={styles.suggestChip}>
-                  <Text style={styles.suggestText}>+ {s}</Text>
-                </Pressable>
-              ))}
-            </View>
-          </View>
+          <EmptyState icon="basket-outline" title="Списъкът е празен" subtitle="Натисни „Добави продукт“ и избери точните продукти, които ти трябват - със снимка, не само дума." actionLabel="Добави продукт" onAction={() => setPicker(true)} />
         ) : (
           <>
-            <View style={styles.chips}>
-              {items.map((q) => (
-                <View key={q} style={styles.itemChip}>
-                  <Text style={styles.itemText}>{q}</Text>
-                  <Pressable onPress={() => remove(q)} hitSlop={8}>
-                    <Ionicons name="close-circle" size={18} color={colors.ink3} />
+            <View style={styles.items}>
+              {items.map((it) => (
+                <View key={it.id} style={styles.itemRow}>
+                  <View style={styles.thumb}>
+                    {it.image_url ? <Image source={{ uri: it.image_url }} style={styles.img} resizeMode="contain" /> : <Ionicons name={it.exact ? "cube-outline" : "text-outline"} size={20} color={colors.ink3} />}
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.itemName} numberOfLines={2}>
+                      {it.name}
+                    </Text>
+                    {!it.exact && <Text style={styles.itemHint}>общо търсене - всякакъв „{it.name}“</Text>}
+                  </View>
+                  <Pressable onPress={() => remove(it.id)} hitSlop={10} style={styles.trash}>
+                    <Ionicons name="close-circle" size={22} color={colors.ink3} />
                   </Pressable>
                 </View>
               ))}
-              <Pressable onPress={() => persist([])} hitSlop={8} style={styles.clearAll}>
-                <Text style={styles.clearAllText}>изчисти</Text>
-              </Pressable>
             </View>
 
             <Pressable onPress={run} disabled={loading} style={({ pressed }) => [styles.cta, (pressed || loading) && { opacity: 0.8 }]}>
@@ -122,7 +108,6 @@ export default function CartScreen() {
 
         {result && (
           <View style={{ gap: 14, marginTop: 6 }}>
-            {/* Split trip */}
             {result.best_split.length > 0 && (
               <View style={[styles.card, styles.cardHero]}>
                 <View style={styles.cardHead}>
@@ -152,7 +137,6 @@ export default function CartScreen() {
               </View>
             )}
 
-            {/* Single store */}
             {single && (
               <View style={styles.card}>
                 <View style={styles.cardHead}>
@@ -172,7 +156,6 @@ export default function CartScreen() {
               </View>
             )}
 
-            {/* Comparison */}
             <View style={styles.card}>
               <Text style={[styles.cardTitle, { marginBottom: 8 }]}>Сравнение по магазини</Text>
               {result.stores.map((s) => (
@@ -190,6 +173,7 @@ export default function CartScreen() {
         )}
       </ScrollView>
 
+      <ProductPicker visible={picker} onClose={() => setPicker(false)} onPick={add} title="Добави в количката" />
       <OfferSheet offer={selected} onClose={() => setSelected(null)} onAddToCart={() => { setSelected(null); toast("Вече е в количката", "cart"); }} />
     </View>
   );
@@ -199,38 +183,40 @@ function Row({ match, onPress }) {
   const o = match.offer;
   return (
     <Pressable onPress={onPress} disabled={!o} style={({ pressed }) => [styles.row, pressed && { opacity: 0.7 }]}>
-      <Text style={styles.rowItem}>{match.item}</Text>
-      {o ? (
-        <>
+      <View style={styles.rowThumb}>
+        {(o?.image_url || match.image_url) ? <Image source={{ uri: o?.image_url || match.image_url }} style={styles.img} resizeMode="contain" /> : <Ionicons name="cube-outline" size={16} color={colors.ink3} />}
+      </View>
+      <View style={{ flex: 1 }}>
+        <Text style={styles.rowItem} numberOfLines={1}>
+          {match.item}
+        </Text>
+        {o ? (
           <Text style={styles.rowName} numberOfLines={1}>
             {o.product_name}
             {o.card_price != null ? <Text style={{ color: "#92400E" }}> · с карта</Text> : null}
             {o.promo_label ? <Text style={{ color: colors.info }}> · {o.promo_label}</Text> : null}
           </Text>
-          <Text style={styles.rowPrice}>{money(o.effective_price || o.discounted_price)}</Text>
-        </>
-      ) : (
-        <Text style={[styles.rowName, { color: colors.ink3, fontStyle: "italic" }]}>няма промоция</Text>
-      )}
+        ) : (
+          <Text style={[styles.rowName, { color: colors.ink3, fontStyle: "italic" }]}>няма промоция</Text>
+        )}
+      </View>
+      {o && <Text style={styles.rowPrice}>{money(o.effective_price || o.discounted_price)}</Text>}
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
-  inputRow: { flexDirection: "row", alignItems: "center", backgroundColor: colors.surface, borderRadius: radius.lg, paddingLeft: 14, paddingRight: 6, height: 52, gap: 8, ...shadow.float },
-  input: { flex: 1, fontSize: 16, color: colors.ink, height: "100%" },
-  addBtn: { backgroundColor: colors.primary, paddingHorizontal: 14, paddingVertical: 9, borderRadius: radius.md },
-  addBtnText: { color: "#fff", fontWeight: "700" },
+  addBar: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, paddingHorizontal: 14, height: 52, ...shadow.float },
+  addBarText: { flex: 1, fontSize: 16, color: colors.ink2 },
   body: { padding: 16, paddingBottom: 32, gap: 12 },
-  suggest: { flexDirection: "row", flexWrap: "wrap", gap: 8, justifyContent: "center" },
-  suggestChip: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  suggestText: { color: colors.ink2, fontWeight: "600" },
-  chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, alignItems: "center" },
-  itemChip: { flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 12, paddingRight: 8, paddingVertical: 8, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
-  itemText: { fontWeight: "600", color: colors.ink },
-  clearAll: { paddingHorizontal: 8 },
-  clearAllText: { color: colors.ink3, fontSize: 13, textDecorationLine: "underline" },
+  items: { gap: 8 },
+  itemRow: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 10, ...shadow.card },
+  thumb: { width: 48, height: 48, borderRadius: 10, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  img: { width: "100%", height: "100%" },
+  itemName: { fontSize: 14, fontWeight: "600", color: colors.ink, lineHeight: 19 },
+  itemHint: { fontSize: 11, color: colors.ink3, marginTop: 2 },
+  trash: { padding: 4 },
   cta: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, backgroundColor: colors.ink, paddingVertical: 14, borderRadius: radius.lg, ...shadow.card },
   ctaText: { color: "#fff", fontWeight: "800", fontSize: 15 },
   error: { color: colors.danger, textAlign: "center" },
@@ -243,9 +229,10 @@ const styles = StyleSheet.create({
   stop: { marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.border },
   stopHead: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 },
   stopTotal: { fontWeight: "800", color: colors.ink2 },
-  row: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 6 },
-  rowItem: { fontSize: 13, fontWeight: "700", color: colors.ink2, width: 78 },
-  rowName: { flex: 1, fontSize: 13, color: colors.ink },
+  row: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 6 },
+  rowThumb: { width: 34, height: 34, borderRadius: 8, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  rowItem: { fontSize: 12, fontWeight: "700", color: colors.ink2 },
+  rowName: { fontSize: 13, color: colors.ink },
   rowPrice: { fontWeight: "800", color: colors.ink },
   missing: { marginTop: 8, fontSize: 12, color: colors.ink3 },
   meta: { fontSize: 12, color: colors.ink3 },
