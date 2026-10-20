@@ -27,7 +27,9 @@ Market/
 │   ├── catalog.py      product picker search (offers + METRO catalogue) + strict cross-store matching
 │   ├── barcode.py      EAN lookup (+ Open Food Facts fallback)
 │   ├── push.py         watchlist evaluation + Expo push
+│   ├── leaflet_ocr.py  Kaufland leaflet pages -> products via OCR (run by GitHub Actions, not on Render)
 │   └── requirements.txt
+├── data/kaufland_leaflet.json   OCR output, committed by the workflow, merged by the Kaufland scraper
 ├── mobile/             Expo / React Native app              (Node 18+)
 │   ├── App.js          bottom tabs, safe areas, notification handler
 │   ├── src/config.js   ← API URL lives here
@@ -47,7 +49,7 @@ Market/
 | Store    | Status | How |
 |----------|--------|-----|
 | Lidl     | ✅ ~670 offers | wildcard storefront search `/q/search?q=*&offset=N` (48/page, product JSON in `data-grid-data`) + Lidl Plus page |
-| Kaufland | ✅ ~850 offers | server-rendered `.k-product-tile` HTML, weekly validity per section |
+| Kaufland | ✅ ~850 offers + leaflet extras | server-rendered `.k-product-tile` HTML, weekly validity per section. The printed leaflet has products the site never lists, so `backend/leaflet_ocr.py` OCRs every page of the current leaflets (leaflets.kaufland.com API → page images → RapidOCR Cyrillic) into `data/kaufland_leaflet.json`; [leaflet-ocr.yml](.github/workflows/leaflet-ocr.yml) refreshes it Mon + Thu and the scraper merges leaflet-only items (labelled "Брошура стр. N", linked to the page) |
 | Billa    | ✅ ~275 offers | ssbbilla.site's text transcription of the whole leaflet (billa.bg itself is image-only; no product images); falls back to broshuri.net |
 | Metro    | ✅ ~350 offers | shop.metro.bg search + variants JSON |
 

@@ -25,6 +25,7 @@ import re
 import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
+from pathlib import Path
 from typing import Optional
 
 import httpx
@@ -383,6 +384,109 @@ class KauflandScraper(BaseScraper):
         """Like _text() but keeps line breaks so the first line ('ВЗЕМИ 1+1 БЕЗПЛАТНО') can be isolated."""
         el = node.select_one(selector)
         return el.get_text("\n", strip=True) if el else ""
+
+    # --- leaflet merge -------------------------------------------------------
+    # The printed leaflet has products kaufland.bg never lists (Halloween sweets,
+    # deli brands, weekend deals). .github/workflows/leaflet-ocr.yml OCRs the
+    # leaflet pages twice a week into data/kaufland_leaflet.json; we fetch that
+    # file and add every leaflet product that has no match on the site.
+    LEAFLET_JSON = "https://raw.githubusercontent.com/Ivan46464/bg-grocery-offers/main/data/kaufland_leaflet.json"
+    LEAFLET_LOCAL = Path(__file__).resolve().parent.parent / "data" / "kaufland_leaflet.json"
+
+    def fetch(self) -> list[ScrapedOffer]:
+        offers = super().fetch()
+        try:
+            extra = self._merge_leaflet(offers)
+            if extra:
+                log.info("Kaufland: +%d leaflet-only products", len(extra))
+                offers = offers + extra
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Kaufland: leaflet merge skipped (%s)", exc)
+        return offers
+
+    def _load_leaflet(self) -> Optional[dict]:
+        try:
+            r = httpx.get(self.LEAFLET_JSON, timeout=30)
+            if r.status_code == 200:
+                return r.json()
+        except httpx.HTTPError:
+            pass
+        if self.LEAFLET_LOCAL.exists():
+            return json.loads(self.LEAFLET_LOCAL.read_text(encoding="utf-8"))
+        return None
+
+    # OCR artefacts: tokens mixing Latin and Cyrillic letters ("ВИТРИNА"), leaflet codes, badges
+    _MIXED_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[А-Яа-я])\S+$")
+    _LEAFLET_JUNK_RE = re.compile(r"\S*BG-KW\S*|-?\s?\b\d{1,2}\s?%|\b\d{1,3}[.,]\d{2}\*?|\bkr\b|\bкr\b|\bkg\b|\bcm\b|\bHOBO\b|\bново\b|\bнова\b|\bточки\b", re.I)
+    _DESCRIPTOR_WORDS = {"различни", "видове", "вкусове", "сортове", "цветове", "размери", "класа", "клас", "опаковка", "бр", "брой"}
+
+    @classmethod
+    def _tidy_leaflet_name(cls, raw: str) -> Optional[str]:
+        """Clean an OCR'd product name; None when nothing product-like remains."""
+        name = cls._LEAFLET_JUNK_RE.sub(" ", raw)
+        name = " ".join(w for w in name.split() if not (cls._MIXED_RE.match(w) and len(w) > 2))
+        name = _clean(name).strip(" -·,/+:")
+        words = [w.lower().strip(".,") for w in name.split()]
+        real = [w for w in words if len(w) >= 4 and w not in cls._DESCRIPTOR_WORDS and not w.isdigit()]
+        if not real or len(name) < 8:
+            return None
+        return name[:120]
+
+    def _merge_leaflet(self, site_offers: list[ScrapedOffer]) -> list[ScrapedOffer]:
+        from rapidfuzz import fuzz
+
+        data = self._load_leaflet()
+        if not data or not data.get("offers"):
+            return []
+        today = date.today()
+        site_prices: dict[float, list[str]] = {}
+        for o in site_offers:
+            site_prices.setdefault(round(o.discounted_price, 2), []).append(o.product_name.lower())
+        unit_like = re.compile(r"^(\d+|[a-zа-я]{1,3}|различни|видове|вкусове|сортове)$")
+
+        def on_site(name: str, price: float) -> bool:
+            """Same price + a shared distinctive word (or close token-set match) -> already on the site."""
+            words = [w.strip(".,").lower() for w in name.split()]
+            words = [w for w in words if len(w) >= 4 and not unit_like.match(w)]
+            for cand in site_prices.get(round(price, 2), []):
+                cand_tokens = set(re.split(r"[\s,/()]+", cand))
+                if any(w in cand_tokens or any(t.startswith(w[:5]) for t in cand_tokens if len(w) >= 5) for w in words):
+                    return True
+                if fuzz.token_set_ratio(name.lower(), cand) >= 70:
+                    return True
+            return False
+
+        extra: list[ScrapedOffer] = []
+        seen: set[tuple[str, float]] = set()
+        for it in data["offers"]:
+            try:
+                vf, vt = date.fromisoformat(it["valid_from"]), date.fromisoformat(it["valid_to"])
+            except (KeyError, ValueError):
+                continue
+            if vt < today or vf > today + timedelta(days=10):
+                continue
+            name = self._tidy_leaflet_name(it["name"])
+            price = float(it["price"])
+            if not name:
+                continue
+            key = (name.lower(), price)
+            if key in seen or on_site(name, price):
+                continue
+            seen.add(key)
+            extra.append(
+                ScrapedOffer(
+                    store=self.store,
+                    product_name=name,
+                    discounted_price=price,
+                    original_price=it.get("old_price"),
+                    image_url=it.get("page_image"),
+                    product_url=it.get("page_url"),
+                    valid_from=vf,
+                    valid_to=vt,
+                    promo_label=f"Брошура стр. {it.get('page')}",
+                )
+            )
+        return extra
 
 
 # --------------------------------------------------------------------------- #

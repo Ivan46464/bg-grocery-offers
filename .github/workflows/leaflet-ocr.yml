@@ -1,0 +1,36 @@
+# OCRs the current Kaufland leaflets (leaflets.kaufland.com) into
+# data/kaufland_leaflet.json and commits it. The API merges leaflet-only
+# products (not on kaufland.bg) into the Kaufland offers from that file.
+#
+# Runs Monday and Thursday mornings (Kaufland's weekly leaflet starts Monday;
+# some campaigns start Thursday) and on demand. Needs ~7 min on the free runner.
+name: kaufland-leaflet-ocr
+
+on:
+  schedule:
+    - cron: "20 4 * * 1,4"   # 04:20 UTC Mon + Thu
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  ocr:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install OCR deps
+        run: pip install httpx pillow numpy rapidocr onnxruntime
+      - name: OCR leaflets
+        run: python backend/leaflet_ocr.py --out data/kaufland_leaflet.json
+      - name: Commit result
+        run: |
+          git config user.name "leaflet-ocr bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data/kaufland_leaflet.json
+          git diff --cached --quiet && echo "no change" || git commit -m "data: Kaufland leaflet OCR $(date -u +%F)"
+          git push
