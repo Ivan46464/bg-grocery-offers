@@ -16,8 +16,11 @@ import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
-import { cartItemId, getDeviceToken, loadCart, loadPushToken, saveCart } from "../storage";
+import HowItWorks from "../components/HowItWorks";
+import { addOfferToCart, cartItemId, getDeviceToken, loadCart, loadPushToken, onCartChange } from "../storage";
 import { colors, radius } from "../theme";
+
+const POPULAR = ["сирене", "кашкавал", "кафе", "вода", "мляко", "яйца", "пиле", "бира", "шоколад", "хляб"];
 
 export default function SearchScreen({ navigation }) {
   const { ready, status, seconds, error: coldError, retry } = useColdStart();
@@ -32,7 +35,14 @@ export default function SearchScreen({ navigation }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
+  const [cartIds, setCartIds] = useState(new Set());
   const abortRef = useRef(null);
+
+  // Which offers are already on the shopping list (for the green check on cards).
+  useEffect(() => {
+    loadCart().then((items) => setCartIds(new Set(items.map((i) => i.id))));
+    return onCartChange((items) => setCartIds(new Set(items.map((i) => i.id))));
+  }, []);
 
   const load = useCallback(async (q, s, t, srt) => {
     abortRef.current?.abort();
@@ -72,13 +82,11 @@ export default function SearchScreen({ navigation }) {
   const asProduct = (offer) => ({ name: offer.product_name, barcode: offer.barcode || null, image_url: offer.image_url || null, exact: true });
 
   const addToCart = async (offer) => {
-    const items = await loadCart();
-    const p = asProduct(offer);
-    const id = cartItemId(p);
-    if (!items.some((x) => x.id === id)) await saveCart([...items, { ...p, id }]);
+    const added = await addOfferToCart(offer);
     setSelected(null);
-    toast("Добавено в количката", "cart");
+    toast(added ? "Добавено в списъка · виж Количка" : "Вече е в списъка", added ? "basket" : "checkmark-circle");
   };
+  const inCart = (offer) => cartIds.has(cartItemId(asProduct(offer)));
 
   const watchOffer = async (offer) => {
     try {
@@ -118,15 +126,29 @@ export default function SearchScreen({ navigation }) {
       <FlatList
         data={offers}
         keyExtractor={(item) => String(item.id)}
-        renderItem={({ item, index }) => <OfferCard offer={item} isBest={isSearching && sort === "price" && index === 0} onPress={setSelected} />}
+        renderItem={({ item, index }) => <OfferCard offer={item} isBest={isSearching && sort === "price" && index === 0} onPress={setSelected} onAdd={addToCart} inCart={inCart(item)} />}
+        extraData={cartIds}
         contentContainerStyle={styles.list}
         keyboardShouldPersistTaps="handled"
         onScrollBeginDrag={Keyboard.dismiss}
         initialNumToRender={8}
         ListHeaderComponent={
-          <Text style={styles.resultsLabel}>
-            {isSearching ? `${offers.length} оферти за „${query.trim()}“` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините оферти тази седмица" : "Най-големите отстъпки тази седмица"}
-          </Text>
+          <View>
+            {!isSearching && !tag && <HowItWorks />}
+            {!isSearching && (
+              <View style={styles.popular}>
+                <Text style={styles.popularLabel}>Бързо търсене:</Text>
+                {POPULAR.map((p) => (
+                  <Pressable key={p} onPress={() => setQuery(p)} style={styles.popularChip}>
+                    <Text style={styles.popularText}>{p}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
+            <Text style={styles.resultsLabel}>
+              {isSearching ? `${offers.length} оферти за „${query.trim()}“ · натисни картата за детайли` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините оферти тази седмица" : "Най-големите отстъпки тази седмица"}
+            </Text>
+          </View>
         }
         refreshing={loading}
         onRefresh={() => load(query, store, tag, sort)}
@@ -191,6 +213,10 @@ const styles = StyleSheet.create({
   content: { flex: 1 },
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
   resultsLabel: { fontSize: 13, color: colors.ink2, marginBottom: 10 },
+  popular: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 },
+  popularLabel: { fontSize: 12, color: colors.ink3, marginRight: 2 },
+  popularChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  popularText: { fontSize: 12, color: colors.ink2, fontWeight: "600" },
   sortBtn: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 10, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.primarySoft },
   sortText: { fontSize: 12, fontWeight: "700", color: colors.primary },
   scanBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: "rgba(255,255,255,0.12)", alignItems: "center", justifyContent: "center" },

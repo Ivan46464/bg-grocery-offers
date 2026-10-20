@@ -38,8 +38,30 @@ export const loadCart = async () => {
     return { qty: 1, price: null, done: false, ...o };
   });
 };
-export const saveCart = (items) => write(KEYS.cart, items);
+const cartListeners = new Set();
+/** Subscribe to cart changes (tab badge, "added" state on cards). Returns unsubscribe. */
+export const onCartChange = (fn) => {
+  cartListeners.add(fn);
+  return () => cartListeners.delete(fn);
+};
+export const saveCart = async (items) => {
+  await write(KEYS.cart, items);
+  cartListeners.forEach((fn) => fn(items));
+};
 export const cartItemId = (p) => p.barcode || p.name.toLowerCase().trim();
+
+/** Add an offer (or picked product) to the list if not there yet. Returns true when added. */
+export async function addOfferToCart(offer) {
+  const p = { name: offer.product_name || offer.name, barcode: offer.barcode || null, image_url: offer.image_url || null, exact: true };
+  const id = cartItemId(p);
+  const items = await loadCart();
+  if (items.some((x) => x.id === id)) return false;
+  await saveCart([...items, { ...p, id, qty: 1, price: null, done: false }]);
+  return true;
+}
+
+export const loadFlag = (key) => read("flag." + key, false);
+export const saveFlag = (key, v) => write("flag." + key, v);
 
 /** Shopping trips (expense log): { id, date, store, note, items: [{name, qty, price}], total }. Newest first. */
 export const loadTrips = () => read(KEYS.trips, []);

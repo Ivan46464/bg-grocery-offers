@@ -6,7 +6,7 @@
  * bottom inset from react-navigation + SafeAreaProvider, so nothing hides behind
  * the status bar or the Android navigation buttons.
  */
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
@@ -19,6 +19,7 @@ import CartScreen from "./src/screens/CartScreen";
 import ScannerScreen from "./src/screens/ScannerScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import WatchScreen from "./src/screens/WatchScreen";
+import { loadCart, onCartChange } from "./src/storage";
 import { colors } from "./src/theme";
 
 // Show notifications even while the app is in the foreground.
@@ -45,6 +46,13 @@ const ICONS = {
 function Tabs() {
   const insets = useSafeAreaInsets();
   const bottom = Math.max(insets.bottom, 8);
+  // badge on the Количка tab = open (unticked) items on the shopping list
+  const [cartCount, setCartCount] = useState(0);
+  useEffect(() => {
+    const count = (items) => setCartCount(items.filter((i) => !i.done).length);
+    loadCart().then(count);
+    return onCartChange(count);
+  }, []);
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -63,7 +71,7 @@ function Tabs() {
       })}
     >
       <Tab.Screen name="Search" component={SearchScreen} options={{ title: "Оферти" }} />
-      <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Количка" }} />
+      <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Количка", tabBarBadge: cartCount || undefined, tabBarBadgeStyle: { backgroundColor: colors.primary, color: "#fff", fontSize: 10, fontWeight: "800" } }} />
       <Tab.Screen name="Scanner" component={ScannerScreen} options={{ title: "Скенер" }} />
       <Tab.Screen name="Watch" component={WatchScreen} options={{ title: "Наблюдение" }} />
     </Tab.Navigator>

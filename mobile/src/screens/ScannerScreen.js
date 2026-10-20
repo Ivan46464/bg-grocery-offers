@@ -1,4 +1,4 @@
-/**
+﻿/**
  * In-store barcode scanner: point the camera at an EAN-13 and see whether the
  * product is on promotion anywhere (exact barcode match) or cheaper elsewhere
  * (fuzzy match by the product's name).
@@ -13,6 +13,8 @@ import EmptyState from "../components/EmptyState";
 import OfferCard from "../components/OfferCard";
 import OfferSheet from "../components/OfferSheet";
 import ScreenHeader from "../components/ScreenHeader";
+import { useToast } from "../components/Toast";
+import { addOfferToCart } from "../storage";
 import { colors, radius, shadow } from "../theme";
 
 const TYPES = ["ean13", "ean8", "upc_a", "upc_e"];
@@ -27,6 +29,12 @@ export default function ScannerScreen() {
   const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
   const busy = useRef(false);
+  const toast = useToast();
+  const addToCart = async (o) => {
+    const added = await addOfferToCart(o);
+    setSelected(null);
+    toast(added ? "Добавено в списъка · виж Количка" : "Вече е в списъка", added ? "basket" : "checkmark-circle");
+  };
 
   const lookup = async (value) => {
     const c = String(value).replace(/\D/g, "");
@@ -132,7 +140,7 @@ export default function ScannerScreen() {
               <>
                 <Text style={styles.section}>На промоция сега</Text>
                 {result.exact.map((o, i) => (
-                  <OfferCard key={o.id} offer={o} isBest={i === 0} onPress={setSelected} />
+                  <OfferCard key={o.id} offer={o} isBest={i === 0} onPress={setSelected} onAdd={addToCart} />
                 ))}
               </>
             )}
@@ -140,7 +148,7 @@ export default function ScannerScreen() {
               <>
                 <Text style={styles.section}>{result.exact.length ? "Подобни продукти" : "Подобни продукти на промоция"}</Text>
                 {result.similar.map((o, i) => (
-                  <OfferCard key={o.id} offer={o} isBest={!result.exact.length && i === 0} onPress={setSelected} />
+                  <OfferCard key={o.id} offer={o} isBest={!result.exact.length && i === 0} onPress={setSelected} onAdd={addToCart} />
                 ))}
               </>
             )}
@@ -155,7 +163,7 @@ export default function ScannerScreen() {
         )}
       </ScrollView>
 
-      <OfferSheet offer={selected} onClose={() => setSelected(null)} />
+      <OfferSheet offer={selected} onClose={() => setSelected(null)} onAddToCart={addToCart} />
     </View>
   );
 }

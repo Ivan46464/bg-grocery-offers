@@ -52,7 +52,11 @@ export function PromoBadges({ offer, compact = false }) {
   );
 }
 
-export default function OfferCard({ offer, isBest = false, onPress }) {
+/**
+ * onAdd(offer) - when given, a "+ Списък" button appears on the card; `inCart`
+ * turns it into a green check so the user sees it's already on the list.
+ */
+export default function OfferCard({ offer, isBest = false, onPress, onAdd, inCart = false }) {
   const from = fmtDate(offer.valid_from);
   const to = fmtDate(offer.valid_to);
   const shown = offer.effective_price || offer.discounted_price;      // card price when there is one
@@ -103,6 +107,17 @@ export default function OfferCard({ offer, isBest = false, onPress }) {
             <Text style={styles.discountText}>-{offer.discount_percent}%</Text>
           </View>
         )}
+        {onAdd ? (
+          <Pressable
+            onPress={() => onAdd(offer)}
+            hitSlop={8}
+            style={({ pressed }) => [styles.addBtn, inCart && styles.addBtnDone, pressed && { opacity: 0.7 }]}
+            accessibilityLabel={inCart ? "В списъка" : "Добави в списъка"}
+          >
+            <Ionicons name={inCart ? "checkmark" : "add"} size={15} color="#fff" />
+            <Text style={styles.addBtnText}>{inCart ? "В списъка" : "Списък"}</Text>
+          </Pressable>
+        ) : null}
       </View>
     </Pressable>
   );
@@ -142,4 +157,7 @@ const styles = StyleSheet.create({
   noCard: { fontSize: 11, color: colors.ink3, textAlign: "right" },
   discountPill: { backgroundColor: colors.dangerSoft, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 2 },
   discountText: { fontSize: 12, fontWeight: "800", color: colors.danger },
+  addBtn: { flexDirection: "row", alignItems: "center", gap: 3, backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 9, paddingVertical: 5, marginTop: 6 },
+  addBtnDone: { backgroundColor: colors.success },
+  addBtnText: { color: "#fff", fontSize: 11, fontWeight: "800" },
 });
