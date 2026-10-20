@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import time
 from dataclasses import asdict, dataclass
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -62,6 +63,33 @@ class ScrapedOffer:
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
     barcode: Optional[str] = None       # EAN-13 when the store exposes it
+    card_price: Optional[float] = None  # loyalty-card price (Kaufland Card, Lidl Plus, BILLA Card)
+    card_name: Optional[str] = None
+    card_only: bool = False             # the promo exists only with the card
+    promo_label: Optional[str] = None   # "1+1 безплатно", "-60% на всеки втори", ...
+
+
+_PLAIN_DISCOUNT_RE = re.compile(
+    r"^\s*(?:-?\s*\d+\s*%\s*(?:отстъпка\s*с?|по-евтино)?|акция|промоция|тази седмица|цена с.*)\s*$", re.I
+)
+
+
+def promo_label_from(text: Optional[str]) -> Optional[str]:
+    """
+    Keep only labels that carry extra meaning ('1+1 безплатно', '-60% на всеки втори'),
+    drop plain percentages ('-20%', '25% отстъпка с', '23% по-евтино') which the price already shows.
+    """
+    if not text:
+        return None
+    first = _clean(text.split("\n")[0])
+    first = re.sub(r"\s*(kaufland card( xtra)?|lidl plus|billa card)\s*", " ", first, flags=re.I).strip(" ·")
+    if not first or _PLAIN_DISCOUNT_RE.match(first):
+        return None
+    first = re.sub(r"^вземи\s+", "", first, flags=re.I)
+    first = re.sub(r"\s*\+\s*", "+", first)              # "4 + 1" -> "4+1"
+    if first.isupper():
+        first = first.lower()
+    return (first[0].upper() + first[1:])[:60]
 
 
 _PRICE_RE = re.compile(r"(\d+(?:[.,]\d{1,2})?)")
@@ -217,20 +245,28 @@ class LidlScraper(BaseScraper):
                     continue
                 price_obj = item.get(k["price_obj"]) or {}
                 new_price = price_obj.get(k["price"])
-                if not new_price:
+                # Lidl Plus: item["lidlPlus"] = [{"price": {...}, "lidlPlusText": "С Lidl Plus", "highlightText": "50% по-евтино"}]
+                plus = (item.get("lidlPlus") or [{}])[0].get("price") or {}
+                plus_price = plus.get("price")
+                if not new_price and not plus_price:
                     continue
-                old_price = price_obj.get(k["old_price"]) or None
+                discount = price_obj.get("discount") or {}
+                old_price = price_obj.get(k["old_price"]) or discount.get("deletedPrice") or (plus.get("discount") or {}).get("deletedPrice") or plus.get("oldPrice") or None
                 pid = str(item.get(k["id"]) or item.get(k["url"]) or item.get(k["title"]))
                 valid_from, valid_to = self._validity(item)
                 offers[pid] = ScrapedOffer(
                     store=self.store,
                     product_name=_clean(item.get(k["title"]) or item.get("title")),
-                    discounted_price=float(new_price),
+                    discounted_price=float(new_price or plus_price),
                     original_price=float(old_price) if old_price else None,
                     image_url=item.get(k["image"]),
                     product_url=self.BASE_URL + item[k["url"]] if item.get(k["url"]) else None,
                     valid_from=valid_from,
                     valid_to=valid_to,
+                    card_price=float(plus_price) if plus_price else None,
+                    card_name="Lidl Plus" if plus_price else None,
+                    card_only=bool(plus_price) and not new_price,
+                    promo_label=promo_label_from(discount.get("discountText")),
                 )
         return list(offers.values())
 
@@ -270,10 +306,14 @@ class KauflandScraper(BaseScraper):
         "title": ".k-product-tile__title",
         "subtitle": ".k-product-tile__subtitle",
         "unit": ".k-product-tile__unit-price",
-        "price": ".k-price-tag__price",
-        "old_price": ".k-price-tag__old-price",
+        "price": ".k-product-tile__pricetags-normal .k-price-tag__price",        # price for everyone
+        "old_price": ".k-product-tile__pricetags-normal .k-price-tag__old-price",
+        "card_price": ".k-product-tile__pricetags-loyalty .k-price-tag__price",  # Kaufland Card (XTRA) price
+        "card_old_price": ".k-product-tile__pricetags-loyalty .k-price-tag__old-price",
+        "promo": ".k-product-tile__promo",         # "ВЗЕМИ 1+1 БЕЗПЛАТНО\nKAUFLAND CARD XTRA" / "Цена с\nKAUFLAND CARD XTRA"
         "image": "img.k-product-tile__main-image",
     }
+    CARD_NAME = "Kaufland Card"
     # ----------------------------------------------------------------------
 
     def _scrape(self) -> list[ScrapedOffer]:
@@ -289,28 +329,42 @@ class KauflandScraper(BaseScraper):
                     subtitle = self._text(tile, self.SEL["subtitle"])
                     unit = self._text(tile, self.SEL["unit"])
                     price = parse_price(self._text(tile, self.SEL["price"]))
-                    if not title or price is None:
+                    card_price = parse_price(self._text(tile, self.SEL["card_price"]))
+                    if not title or (price is None and card_price is None):
                         continue
+                    card_only = price is None                      # XTRA-only promo: no price for non-members
                     name = _clean(" ".join(p for p in (title, subtitle, unit) if p))
-                    if (name, price) in seen:          # the same tile is repeated in several sections
+                    key = (name, price if price is not None else card_price)
+                    if key in seen:                                # the same tile is repeated in several sections
                         continue
-                    seen.add((name, price))
+                    seen.add(key)
                     href = tile.get("href") if tile.name == "a" else self._attr(tile, "a", "href")
                     image = self._attr(tile, self.SEL["image"], "src", "data-src")
+                    original = parse_price(self._text(tile, self.SEL["old_price"])) or parse_price(self._text(tile, self.SEL["card_old_price"]))
                     offers.append(
                         ScrapedOffer(
                             store=self.store,
                             product_name=name,
-                            discounted_price=price,
-                            original_price=parse_price(self._text(tile, self.SEL["old_price"])),
+                            discounted_price=price if price is not None else card_price,
+                            original_price=original,
                             image_url=image,
                             product_url=(self.BASE_URL + href) if href and href.startswith("/") else (href if href and href != "#" else url),
                             valid_from=valid_from,
                             valid_to=valid_to,
                             barcode=extract_ean(image),   # branded goods: ".../5011026108033_BG_P"
+                            card_price=card_price,
+                            card_name=self.CARD_NAME if card_price is not None else None,
+                            card_only=card_only,
+                            promo_label=promo_label_from(self._text_lines(tile, self.SEL["promo"])),
                         )
                     )
         return offers
+
+    @staticmethod
+    def _text_lines(node, selector: str) -> str:
+        """Like _text() but keeps line breaks so the first line ('ВЗЕМИ 1+1 БЕЗПЛАТНО') can be isolated."""
+        el = node.select_one(selector)
+        return el.get_text("\n", strip=True) if el else ""
 
 
 # --------------------------------------------------------------------------- #
@@ -326,7 +380,9 @@ class KauflandScraper(BaseScraper):
 # products per week, not the whole leaflet, but every row is a real offer.
 # Alternative with a similar table (no old prices): moiatabroshura.bg/billa-katalozi.
 # --------------------------------------------------------------------------- #
-class BillaScraper(BaseScraper):
+class BillaBroshuriScraper(BaseScraper):
+    """Fallback Billa source (~40 highlighted products, with images). See BillaScraper for the full leaflet."""
+
     store = "Billa"
 
     # --- CONFIG ------------------------------------------------------------
@@ -401,6 +457,171 @@ class BillaScraper(BaseScraper):
             if d1 and d2:
                 return d1, d2
         return None, None
+
+
+# --------------------------------------------------------------------------- #
+# Billa (primary) - https://ssbbilla.site transcribes the ENTIRE weekly Billa
+# leaflet (~400 rows) as plain HTML:
+#   <div class="product">
+#     <div class="actualProduct">Кинг оферти - Hochland крема сирене 2 х 200 г</div>
+#     ... <span class="price">5.57</span> € <span class="price">31%</span> ... <span class="price">3.79</span> €
+#   </div>
+# Multi-buy rows have no price spans; everything is in the text:
+#   "Мултипак оферта 1+1\nLuengo Сварен боб 2 х 570 г\nЦена за 1 бр. 1,99 €\n
+#    Цена за 2 бр. без отстъпка 3,98 €\nЦена за 2 бр. с отстъпка 1,99 €"
+# No product images on this site. If it is down we fall back to broshuri.net.
+# --------------------------------------------------------------------------- #
+class BillaScraper(BaseScraper):
+    store = "Billa"
+
+    # --- CONFIG ------------------------------------------------------------
+    URL = "https://ssbbilla.site/"
+    SEL = {
+        "row": ".product",
+        "name": ".actualProduct",
+        "price": "span.price",
+    }
+    STRIP_PREFIXES = ("кинг оферти -", "сега в billa -", "кешбек оферта -", "само с billa card -", "кинг оферти", "сега в billa")
+    STRIP_SUFFIX_RE = re.compile(r"\s*(кешбек\s+(в|с)\s+billa\s*card.*|произход\s*-.*)$", re.I)
+    CARD_NAME = "BILLA Card"
+    TIMEOUT = 60                     # the site is slow
+    # ----------------------------------------------------------------------
+
+    _DATE_RE = re.compile(r"(\d{1,2})\.(\d{1,2})\.?(?:(\d{4}))?")
+    _PACK_RE = re.compile(r"цена за (\d+) бр\. (без|с) отстъпка\s*([\d.,]+)", re.I)
+    _MULTI_RE = re.compile(r"мултипак оферта\s*(?:за\s*)?([\d]+\s*\+\s*[\d]+|\d+\s*бр\.?)", re.I)
+    _CASHBACK_RE = re.compile(r"кешбек[^\n]{0,40}?([\d.,]+)\s*€", re.I)
+
+    RETRIES = 4                      # ssbbilla.site occasionally refuses connections / times out
+
+    def _scrape(self) -> list[ScrapedOffer]:
+        last_exc: Optional[Exception] = None
+        for attempt in range(self.RETRIES):
+            try:
+                with httpx.Client(headers=HEADERS, timeout=self.TIMEOUT, follow_redirects=True) as client:
+                    resp = client.get(self.URL)
+                    resp.raise_for_status()
+                break
+            except (httpx.HTTPError, OSError) as exc:
+                last_exc = exc
+                log.info("Billa: attempt %d/%d failed (%s)", attempt + 1, self.RETRIES, exc)
+                time.sleep(3 * (attempt + 1))
+        else:
+            raise last_exc  # type: ignore[misc]
+        soup = self._soup(resp.text)
+        valid_from, valid_to = self._validity(soup)
+        offers: dict[tuple[str, float], ScrapedOffer] = {}
+        for row in soup.select(self.SEL["row"]):
+            offer = self._parse_row(row, valid_from, valid_to)
+            if offer and (offer.product_name, offer.discounted_price) not in offers:
+                offers[(offer.product_name, offer.discounted_price)] = offer
+        return list(offers.values())
+
+    def _validity(self, soup) -> tuple[Optional[date], Optional[date]]:
+        """'Валидност: от четвъртък 15.10. до сряда 21.10.2026 г.' -> (15.10.2026, 21.10.2026)."""
+        for el in soup.select(self.SEL["name"]):
+            text = el.get_text(" ", strip=True)
+            if "валидност" not in text.lower():
+                continue
+            found = self._DATE_RE.findall(text)
+            if len(found) >= 2:
+                (d1, m1, y1), (d2, m2, y2) = found[0], found[1]
+                try:
+                    end = date(int(y2 or y1 or date.today().year), int(m2), int(d2))
+                    start = date(int(y1 or end.year), int(m1), int(d1))
+                    if start > end:
+                        start = start.replace(year=start.year - 1)
+                    return start, end
+                except ValueError:
+                    pass
+        return None, None
+
+    def _clean_name(self, name: str) -> str:
+        n = _clean(name)
+        changed = True
+        while changed:                       # "Кинг оферти - Само с Billa Card - Lenor ..." has two prefixes
+            changed = False
+            low = n.lower()
+            for p in self.STRIP_PREFIXES:
+                if low.startswith(p):
+                    n = n[len(p):].strip(" -–")
+                    changed = True
+                    break                    # re-read `low` before trying the next prefix
+        return self.STRIP_SUFFIX_RE.sub("", n).strip(" -–,")
+
+    def _parse_row(self, row, valid_from, valid_to) -> Optional[ScrapedOffer]:
+        name_el = row.select_one(self.SEL["name"])
+        if not name_el:
+            return None
+        raw = name_el.get_text("\n", strip=True)
+        low = raw.lower()
+        if "валидност" in low or "посочените цени" in low or len(raw) < 4:
+            return None
+
+        spans = [s.get_text(strip=True) for s in row.select(self.SEL["price"])]
+        pcts = [s for s in spans if "%" in s]
+        prices = [parse_price(s) for s in spans if "%" not in s]
+        prices = [p for p in prices if p]
+
+        promo_label: Optional[str] = None
+        card_name: Optional[str] = None
+        card_only = "само с billa card" in low
+        cashback = None
+        if "billa card" in low or "кешбек" in low:
+            card_name = self.CARD_NAME
+            m = self._CASHBACK_RE.search(raw)
+            cashback = parse_price(m.group(1)) if m else None
+            if card_only:
+                promo_label = "Само с BILLA Card"
+            else:
+                promo_label = f"Кешбек {cashback:.2f} € с BILLA Card" if cashback else "Кешбек с BILLA Card"
+
+        def card_price_for(new: float) -> Optional[float]:
+            if card_only:
+                return new
+            if cashback:
+                return round(new - cashback, 2)         # cashback lands in the BILLA Card wallet
+            return None
+
+        if prices:
+            # Regular row: 1 price = promo only, 2+ = old & new (old is the larger one)
+            new = min(prices)
+            old = max(prices) if len(prices) > 1 and max(prices) > new else None
+            name = self._clean_name(raw.split("\n")[0])
+            return ScrapedOffer(
+                store=self.store, product_name=name, discounted_price=new, original_price=old,
+                product_url=self.URL, valid_from=valid_from, valid_to=valid_to,
+                card_name=card_name, card_only=card_only, card_price=card_price_for(new), promo_label=promo_label,
+            )
+
+        # Multi-buy row: "Мултипак оферта 1+1\n<name>\nЦена за 1 бр. X\nЦена за 2 бр. без отстъпка Y\nЦена за 2 бр. с отстъпка Z"
+        m = self._MULTI_RE.search(raw)
+        packs = self._PACK_RE.findall(raw)
+        if not m or not packs:
+            return None
+        lines = [l for l in raw.split("\n") if l.strip()]
+        name_lines = [l for l in lines[1:] if not l.lower().startswith("цена за")]
+        if not name_lines:
+            return None
+        name = self._clean_name(name_lines[0])
+        with_disc = next((parse_price(p[2]) for p in packs if p[1].lower() == "с"), None)
+        without = next((parse_price(p[2]) for p in packs if p[1].lower() == "без"), None)
+        if not with_disc:
+            return None
+        label = m.group(1).replace(" ", "")
+        promo = f"{label} безплатно" if "+" in label else f"Мултипак {label}"
+        return ScrapedOffer(
+            store=self.store, product_name=name, discounted_price=with_disc, original_price=without,
+            product_url=self.URL, valid_from=valid_from, valid_to=valid_to,
+            card_name=card_name, card_only=card_only, card_price=card_price_for(with_disc), promo_label=promo_label or promo,
+        )
+
+    def fetch(self) -> list[ScrapedOffer]:
+        offers = super().fetch()
+        if len(offers) >= 50:
+            return offers
+        log.warning("Billa: primary source gave %d rows - falling back to broshuri.net", len(offers))
+        return BillaBroshuriScraper().fetch()
 
 
 # --------------------------------------------------------------------------- #
@@ -616,12 +837,14 @@ def store_offers(session: Session, store: str, offers: list[ScrapedOffer], is_mo
     session.exec(delete(Offer).where(Offer.store == store))
     rows: list[Offer] = []
     for o in offers:
+        effective = min(o.discounted_price, o.card_price) if o.card_price else o.discounted_price
         rows.append(
             Offer(
                 **asdict(o),
                 name_key=name_key(o.product_name),
                 tags=tags_to_str(derive_tags(o.product_name)),
-                discount_percent=_discount_percent(o.discounted_price, o.original_price),
+                discount_percent=_discount_percent(effective, o.original_price),
+                effective_price=effective,
                 is_mock=is_mock,
             )
         )

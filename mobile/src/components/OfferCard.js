@@ -30,10 +30,34 @@ export function LowBadge({ offer, compact = false }) {
 /**
  * One result row: image | store + name + validity + badges | price column.
  */
+/** "1+1 безплатно" / "-60% на всеки втори" and loyalty-card pills. */
+export function PromoBadges({ offer, compact = false }) {
+  return (
+    <>
+      {offer.promo_label ? (
+        <View style={[styles.badge, { backgroundColor: colors.infoSoft }]}>
+          <Ionicons name="gift-outline" size={11} color={colors.info} />
+          <Text style={[styles.badgeText, { color: colors.info }]} numberOfLines={1}>
+            {offer.promo_label}
+          </Text>
+        </View>
+      ) : null}
+      {offer.card_price != null && (
+        <View style={[styles.badge, { backgroundColor: colors.accentSoft }]}>
+          <Ionicons name="card-outline" size={11} color="#92400E" />
+          <Text style={[styles.badgeText, { color: "#92400E" }]}>{compact ? (offer.card_only ? "само с карта" : "с карта") : offer.card_only ? `само с ${offer.card_name}` : `с ${offer.card_name}`}</Text>
+        </View>
+      )}
+    </>
+  );
+}
+
 export default function OfferCard({ offer, isBest = false, onPress }) {
   const from = fmtDate(offer.valid_from);
   const to = fmtDate(offer.valid_to);
-  const hasOld = offer.original_price != null && offer.original_price > offer.discounted_price;
+  const shown = offer.effective_price || offer.discounted_price;      // card price when there is one
+  const hasOld = offer.original_price != null && offer.original_price > shown;
+  const hasCard = offer.card_price != null && !offer.card_only && offer.card_price < offer.discounted_price;
 
   return (
     <Pressable onPress={() => onPress?.(offer)} style={({ pressed }) => [styles.card, isBest && styles.cardBest, pressed && styles.cardPressed]}>
@@ -66,13 +90,14 @@ export default function OfferCard({ offer, isBest = false, onPress }) {
             </Text>
           ) : null}
           <LowBadge offer={offer} compact />
+          <PromoBadges offer={offer} compact />
           {offer.is_mock && <Text style={styles.mock}>демо</Text>}
         </View>
       </View>
 
       <View style={styles.priceCol}>
-        <Text style={styles.price}>{money(offer.discounted_price)}</Text>
-        {hasOld && <Text style={styles.oldPrice}>{money(offer.original_price)}</Text>}
+        <Text style={styles.price}>{money(shown)}</Text>
+        {hasCard ? <Text style={styles.noCard}>{money(offer.discounted_price)} без карта</Text> : hasOld ? <Text style={styles.oldPrice}>{money(offer.original_price)}</Text> : null}
         {offer.discount_percent != null && (
           <View style={styles.discountPill}>
             <Text style={styles.discountText}>-{offer.discount_percent}%</Text>
@@ -114,6 +139,7 @@ const styles = StyleSheet.create({
   priceCol: { alignItems: "flex-end", justifyContent: "center", minWidth: 76, gap: 2 },
   price: { fontSize: 19, fontWeight: "800", color: colors.ink },
   oldPrice: { fontSize: 13, color: colors.ink3, textDecorationLine: "line-through" },
+  noCard: { fontSize: 11, color: colors.ink3, textAlign: "right" },
   discountPill: { backgroundColor: colors.dangerSoft, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, marginTop: 2 },
   discountText: { fontSize: 12, fontWeight: "800", color: colors.danger },
 });

@@ -204,8 +204,10 @@ function Row({ match, onPress }) {
         <>
           <Text style={styles.rowName} numberOfLines={1}>
             {o.product_name}
+            {o.card_price != null ? <Text style={{ color: "#92400E" }}> · с карта</Text> : null}
+            {o.promo_label ? <Text style={{ color: colors.info }}> · {o.promo_label}</Text> : null}
           </Text>
-          <Text style={styles.rowPrice}>{money(o.discounted_price)}</Text>
+          <Text style={styles.rowPrice}>{money(o.effective_price || o.discounted_price)}</Text>
         </>
       ) : (
         <Text style={[styles.rowName, { color: colors.ink3, fontStyle: "italic" }]}>няма промоция</Text>

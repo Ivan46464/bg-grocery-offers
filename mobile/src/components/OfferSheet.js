@@ -4,7 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getOfferHistory } from "../api";
 import { colors, money, radius } from "../theme";
-import { LowBadge } from "./OfferCard";
+import { LowBadge, PromoBadges } from "./OfferCard";
 import Sparkline from "./Sparkline";
 import StoreBadge from "./StoreBadge";
 
@@ -30,7 +30,9 @@ export default function OfferSheet({ offer, onClose, onAddToCart, onWatch }) {
   }, [offer?.id]);
 
   if (!offer) return null;
-  const hasOld = offer.original_price != null && offer.original_price > offer.discounted_price;
+  const shown = offer.effective_price || offer.discounted_price;
+  const hasOld = offer.original_price != null && offer.original_price > shown;
+  const hasCard = offer.card_price != null;
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
@@ -45,11 +47,12 @@ export default function OfferSheet({ offer, onClose, onAddToCart, onWatch }) {
           <View style={styles.row}>
             <StoreBadge store={offer.store} />
             <LowBadge offer={offer} />
+            <PromoBadges offer={offer} />
           </View>
           <Text style={styles.name}>{offer.product_name}</Text>
 
           <View style={styles.priceRow}>
-            <Text style={styles.price}>{money(offer.discounted_price)}</Text>
+            <Text style={styles.price}>{money(shown)}</Text>
             {hasOld && <Text style={styles.old}>{money(offer.original_price)}</Text>}
             {offer.discount_percent != null && (
               <View style={styles.discount}>
@@ -57,6 +60,22 @@ export default function OfferSheet({ offer, onClose, onAddToCart, onWatch }) {
               </View>
             )}
           </View>
+          {hasCard && (
+            <View style={styles.cardBox}>
+              <Ionicons name="card" size={18} color="#92400E" />
+              <Text style={styles.cardText}>
+                {offer.card_only
+                  ? `Тази цена е само с ${offer.card_name}. Без карта няма промоция.`
+                  : `${money(offer.card_price)} с ${offer.card_name} · ${money(offer.discounted_price)} без карта`}
+              </Text>
+            </View>
+          )}
+          {offer.promo_label && (
+            <View style={[styles.cardBox, { backgroundColor: colors.infoSoft }]}>
+              <Ionicons name="gift" size={18} color={colors.info} />
+              <Text style={[styles.cardText, { color: colors.info }]}>{offer.promo_label}</Text>
+            </View>
+          )}
 
           <View style={styles.facts}>
             <Fact icon="calendar-outline" label="Валидна" value={`${fmtDate(offer.valid_from)} – ${fmtDate(offer.valid_to)}`} />
@@ -115,6 +134,8 @@ const styles = StyleSheet.create({
   old: { fontSize: 16, color: colors.ink3, textDecorationLine: "line-through" },
   discount: { backgroundColor: colors.dangerSoft, borderRadius: 6, paddingHorizontal: 8, paddingVertical: 3 },
   discountText: { color: colors.danger, fontWeight: "800" },
+  cardBox: { flexDirection: "row", alignItems: "center", gap: 10, backgroundColor: colors.accentSoft, borderRadius: 10, padding: 10, marginTop: 10 },
+  cardText: { flex: 1, fontSize: 13, color: "#92400E", fontWeight: "600", lineHeight: 18 },
   facts: { marginTop: 14, gap: 8 },
   fact: { flexDirection: "row", alignItems: "center", gap: 8 },
   factLabel: { fontSize: 13, color: colors.ink3, width: 76 },

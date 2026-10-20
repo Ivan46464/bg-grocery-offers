@@ -40,8 +40,14 @@ class Offer(SQLModel, table=True):
     name_key: str = Field(default="", index=True)
 
     original_price: Optional[float] = None      # price before the promotion (EUR), may be unknown
-    discounted_price: float                     # current promo price (EUR)
-    discount_percent: Optional[int] = None      # derived: round((1 - new/old) * 100)
+    discounted_price: float                     # promo price for everyone (EUR); = card price when card_only
+    discount_percent: Optional[int] = None      # derived: round((1 - effective/old) * 100)
+
+    card_price: Optional[float] = None          # extra-low price with the store's loyalty card
+    card_name: Optional[str] = None             # "Kaufland Card" | "Lidl Plus" | "BILLA Card"
+    card_only: bool = False                     # promo exists ONLY with the card
+    promo_label: Optional[str] = None           # "1+1 безплатно", "-60% на всеки втори", "2+1" ...
+    effective_price: float = 0.0                # min(discounted_price, card_price) - what we sort by
 
     image_url: Optional[str] = None
     product_url: Optional[str] = None           # link back to the store page
@@ -109,6 +115,11 @@ class OfferRead(SQLModel):
     original_price: Optional[float]
     discounted_price: float
     discount_percent: Optional[int]
+    card_price: Optional[float] = None
+    card_name: Optional[str] = None
+    card_only: bool = False
+    promo_label: Optional[str] = None
+    effective_price: float = 0.0
     image_url: Optional[str]
     product_url: Optional[str]
     barcode: Optional[str]

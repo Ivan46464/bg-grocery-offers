@@ -94,12 +94,12 @@ export default function WatchScreen() {
       const next = { ...seen };
       for (const w of list) {
         if (!w.hit || !w.current_best) continue;
-        const stamp = `${w.current_best.id}:${w.current_best.discounted_price}`;
+        const stamp = `${w.current_best.id}:${w.current_best.effective_price || w.current_best.discounted_price}`;
         if (seen[w.id] === stamp) continue;
         next[w.id] = stamp;
         if (seen[w.id] !== undefined) {
           await Notifications.scheduleNotificationAsync({
-            content: { title: `${w.current_best.store}: ${w.current_best.product_name}`, body: `${money(w.current_best.discounted_price)} · „${w.query}“` },
+            content: { title: `${w.current_best.store}: ${w.current_best.product_name}`, body: `${money(w.current_best.effective_price || w.current_best.discounted_price)} · „${w.query}“` },
             trigger: null,
           });
         }
@@ -189,7 +189,7 @@ export default function WatchScreen() {
                     <Text style={styles.bestName} numberOfLines={1}>
                       {w.current_best.product_name}
                     </Text>
-                    <Text style={styles.bestPrice}>{money(w.current_best.discounted_price)}</Text>
+                    <Text style={styles.bestPrice}>{money(w.current_best.effective_price || w.current_best.discounted_price)}</Text>
                   </View>
                 ) : (
                   <Text style={styles.muted}>Няма промоция тази седмица - ще проверяваме всяка седмица.</Text>

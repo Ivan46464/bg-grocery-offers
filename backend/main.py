@@ -244,11 +244,11 @@ def list_offers(
     """Browse offers without a search term."""
     stmt = _offers_query(store, tag)
     if sort == "discount":
-        stmt = stmt.order_by(Offer.discount_percent.desc().nullslast(), Offer.discounted_price)
+        stmt = stmt.order_by(Offer.discount_percent.desc().nullslast(), Offer.effective_price)
     elif sort == "newest":
-        stmt = stmt.order_by(Offer.valid_from.desc().nullslast(), Offer.discounted_price)
+        stmt = stmt.order_by(Offer.valid_from.desc().nullslast(), Offer.effective_price)
     else:
-        stmt = stmt.order_by(Offer.discounted_price)
+        stmt = stmt.order_by(Offer.effective_price)
     return [OfferRead.from_offer(o) for o in session.exec(stmt.offset(offset).limit(limit)).all()]
 
 
@@ -286,7 +286,7 @@ def barcode_lookup(code: str, session: Session = Depends(get_session)):
         raise HTTPException(400, "Not an EAN/UPC code")
     # EAN-13 and UPC-A/GTIN-14 variants of the same product
     variants = {code, code.lstrip("0"), code.zfill(13), code.zfill(14)}
-    exact = session.exec(select(Offer).where(Offer.barcode.in_(variants)).order_by(Offer.discounted_price)).all()
+    exact = session.exec(select(Offer).where(Offer.barcode.in_(variants)).order_by(Offer.effective_price)).all()
 
     name: Optional[str] = exact[0].product_name if exact else None
     source = "offers" if exact else "unknown"
@@ -306,7 +306,7 @@ def barcode_lookup(code: str, session: Session = Depends(get_session)):
             for o, s in search_offers(offers, q, sort="price", threshold=70):
                 if o.id not in exact_ids and (o.id not in best or s > best[o.id][1]):
                     best[o.id] = (o, s)
-        ranked = sorted(best.values(), key=lambda t: (t[0].discounted_price, -t[1]))
+        ranked = sorted(best.values(), key=lambda t: (t[0].effective_price, -t[1]))
         similar = [OfferRead.from_offer(o, s) for o, s in ranked[:20]]
 
     return BarcodeResponse(

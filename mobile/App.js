@@ -10,7 +10,7 @@ import React from "react";
 import { StatusBar } from "expo-status-bar";
 import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
-import { SafeAreaProvider } from "react-native-safe-area-context";
+import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
 
@@ -37,27 +37,46 @@ const ICONS = {
   Watch: ["notifications", "notifications-outline"],
 };
 
+/**
+ * Tab bar height = content + the bottom system inset (Android 3-button nav /
+ * gesture bar). A fixed `height` would swallow that inset and put the bar
+ * underneath the system buttons, so we add it explicitly here.
+ */
+function Tabs() {
+  const insets = useSafeAreaInsets();
+  const bottom = Math.max(insets.bottom, 8);
+  return (
+    <Tab.Navigator
+      screenOptions={({ route }) => ({
+        headerShown: false,
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.ink3,
+        tabBarLabelStyle: { fontSize: 11, fontWeight: "700", marginBottom: 2 },
+        tabBarStyle: {
+          backgroundColor: colors.surface,
+          borderTopColor: colors.border,
+          height: 58 + bottom,
+          paddingTop: 6,
+          paddingBottom: bottom,
+        },
+        tabBarIcon: ({ focused, color, size }) => <Ionicons name={focused ? ICONS[route.name][0] : ICONS[route.name][1]} size={size} color={color} />,
+      })}
+    >
+      <Tab.Screen name="Search" component={SearchScreen} options={{ title: "Оферти" }} />
+      <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Количка" }} />
+      <Tab.Screen name="Scanner" component={ScannerScreen} options={{ title: "Скенер" }} />
+      <Tab.Screen name="Watch" component={WatchScreen} options={{ title: "Наблюдение" }} />
+    </Tab.Navigator>
+  );
+}
+
 export default function App() {
   return (
     <SafeAreaProvider>
       <StatusBar style="light" translucent backgroundColor="transparent" />
       <ToastProvider>
         <NavigationContainer theme={navTheme}>
-          <Tab.Navigator
-            screenOptions={({ route }) => ({
-              headerShown: false,
-              tabBarActiveTintColor: colors.primary,
-              tabBarInactiveTintColor: colors.ink3,
-              tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
-              tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: 62, paddingTop: 6 },
-              tabBarIcon: ({ focused, color, size }) => <Ionicons name={focused ? ICONS[route.name][0] : ICONS[route.name][1]} size={size} color={color} />,
-            })}
-          >
-            <Tab.Screen name="Search" component={SearchScreen} options={{ title: "Оферти" }} />
-            <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Количка" }} />
-            <Tab.Screen name="Scanner" component={ScannerScreen} options={{ title: "Скенер" }} />
-            <Tab.Screen name="Watch" component={WatchScreen} options={{ title: "Наблюдение" }} />
-          </Tab.Navigator>
+          <Tabs />
         </NavigationContainer>
       </ToastProvider>
     </SafeAreaProvider>

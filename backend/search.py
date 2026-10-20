@@ -140,13 +140,18 @@ def score_offer(name: str, variants: Iterable[str]) -> int:
     return best
 
 
+def price_of(o: Offer) -> float:
+    """What the shopper can actually pay: the card price when there is one."""
+    return o.effective_price or o.discounted_price
+
+
 def sort_hits(hits: list[tuple[Offer, int]], sort: str) -> list[tuple[Offer, int]]:
     if sort == "score":
-        hits.sort(key=lambda t: (-t[1], t[0].discounted_price))
+        hits.sort(key=lambda t: (-t[1], price_of(t[0])))
     elif sort == "discount":
-        hits.sort(key=lambda t: (-(t[0].discount_percent or 0), t[0].discounted_price))
+        hits.sort(key=lambda t: (-(t[0].discount_percent or 0), price_of(t[0])))
     else:  # price
-        hits.sort(key=lambda t: (t[0].discounted_price, -t[1]))
+        hits.sort(key=lambda t: (price_of(t[0]), -t[1]))
     return hits
 
 

@@ -22,7 +22,7 @@ import httpx
 from sqlmodel import Session, select
 
 from models import Offer, Watch, utcnow
-from search import search_offers
+from search import price_of, search_offers
 
 log = logging.getLogger("push")
 
@@ -38,7 +38,7 @@ def best_match(watch: Watch, offers: list[Offer]) -> Optional[Offer]:
 def meets_target(watch: Watch, offer: Optional[Offer]) -> bool:
     if offer is None:
         return False
-    return watch.target_price is None or offer.discounted_price <= watch.target_price
+    return watch.target_price is None or price_of(offer) <= watch.target_price
 
 
 def send_push(messages: list[dict]) -> None:
@@ -65,11 +65,11 @@ def check_watches(session: Session) -> int:
         offer = best_match(w, offers)
         if not meets_target(w, offer):
             continue
-        already = w.last_hit_offer_id == offer.id and w.last_hit_price == offer.discounted_price
+        already = w.last_hit_offer_id == offer.id and w.last_hit_price == price_of(offer)
         if already:
             continue
         w.last_hit_offer_id = offer.id
-        w.last_hit_price = offer.discounted_price
+        w.last_hit_price = price_of(offer)
         w.last_hit_name = offer.product_name
         w.last_hit_store = offer.store
         w.last_notified_at = utcnow()
@@ -80,7 +80,7 @@ def check_watches(session: Session) -> int:
                 {
                     "to": w.token,
                     "title": f"{offer.store}: {offer.product_name[:60]}",
-                    "body": f"{offer.discounted_price:.2f} € " + (f"(преди {offer.original_price:.2f} €)" if offer.original_price else "") + f" · търсене „{w.query}“",
+                    "body": f"{price_of(offer):.2f} € " + (f"с {offer.card_name} " if offer.card_price else "") + (f"(преди {offer.original_price:.2f} €)" if offer.original_price else "") + f" · търсене „{w.query}“",
                     "data": {"offer_id": offer.id, "watch_id": w.id},
                     "sound": "default",
                 }

@@ -46,8 +46,13 @@ Market/
 |----------|--------|-----|
 | Lidl     | ✅ ~200 offers | product JSON embedded in `data-grid-data` on category pages |
 | Kaufland | ✅ ~850 offers | server-rendered `.k-product-tile` HTML, weekly validity per section |
-| Billa    | ✅ ~40 offers  | broshuri.net's HTML rendering of the Billa leaflet (billa.bg itself is image-only) |
+| Billa    | ✅ ~275 offers | ssbbilla.site's text transcription of the whole leaflet (billa.bg itself is image-only; no product images); falls back to broshuri.net |
 | Metro    | ✅ ~350 offers | shop.metro.bg search + variants JSON |
+
+**Loyalty cards & multi-buy:** Kaufland Card (XTRA) and Lidl Plus prices are scraped into `card_price`
+(`card_only` when there is no price without the card), Billa cashback is subtracted into `card_price`, and
+labels like "1+1 безплатно" / "-60% на всеки втори" land in `promo_label`. Search, cart and watchlist sort
+by `effective_price` = the card price when one exists.
 
 If a scraper breaks (site redesign) it falls back to demo rows flagged `is_mock: true`, and the app shows a yellow "демо данни" banner for that store until you fix the selectors in `scraper.py`.
 
