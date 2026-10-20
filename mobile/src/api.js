@@ -65,6 +65,8 @@ export const searchOffers = (q, { store, tag, sort = "price", limit = 100, signa
 export const listOffers = ({ store, tag, sort = "price", limit = 60, signal } = {}) =>
   request(`/api/offers${qs({ store, tag, sort, limit })}`, { signal });
 export const getOfferHistory = (id, opts) => request(`/api/offers/${id}/history`, opts);
+/** Same product in other stores + similar products (pure matching, no AI service). */
+export const getSimilar = (id, opts) => request(`/api/offers/${id}/similar`, opts);
 
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);

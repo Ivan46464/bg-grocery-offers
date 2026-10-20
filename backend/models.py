@@ -157,6 +157,13 @@ class OfferHistory(SQLModel):
     is_lowest_90d: Optional[bool]
 
 
+class SimilarResponse(SQLModel):
+    offer: OfferRead
+    same_elsewhere: list[OfferRead]                 # the same product in other stores
+    similar: list[OfferRead]                        # similar products (same kind), cheapest first
+    query: str                                      # the core words we matched on (for the UI label)
+
+
 class StoreStatus(SQLModel):
     store: str
     offers: int

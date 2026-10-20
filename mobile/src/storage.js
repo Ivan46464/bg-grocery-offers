@@ -9,6 +9,7 @@ const KEYS = {
   recent: "search.recent.v1",
   device: "device.token.v1",
   pushToken: "push.token.v1",
+  trips: "trips.v1",
 };
 
 async function read(key, fallback) {
@@ -26,13 +27,24 @@ async function write(key, value) {
   } catch {}
 }
 
-/** Cart items are { id, name, barcode?, image_url?, exact }. Old installs stored plain strings - migrate. */
+/**
+ * Shopping-list items: { id, name, barcode?, image_url?, exact, qty, price, done }.
+ * Older installs stored plain strings or objects without qty/price - migrate.
+ */
 export const loadCart = async () => {
   const items = await read(KEYS.cart, []);
-  return items.map((it) => (typeof it === "string" ? { id: it, name: it, exact: false } : it));
+  return items.map((it) => {
+    const o = typeof it === "string" ? { id: it, name: it, exact: false } : it;
+    return { qty: 1, price: null, done: false, ...o };
+  });
 };
 export const saveCart = (items) => write(KEYS.cart, items);
 export const cartItemId = (p) => p.barcode || p.name.toLowerCase().trim();
+
+/** Shopping trips (expense log): { id, date, store, note, items: [{name, qty, price}], total }. Newest first. */
+export const loadTrips = () => read(KEYS.trips, []);
+export const saveTrips = (trips) => write(KEYS.trips, trips);
+export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 export const loadRecent = () => read(KEYS.recent, []);
 export const pushRecent = async (q) => {

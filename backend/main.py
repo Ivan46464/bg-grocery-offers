@@ -41,7 +41,7 @@ from sqlmodel import Session, func, select
 
 import barcode as barcode_mod
 from cart import optimize
-from catalog import catalog_search
+from catalog import catalog_search, match_offers, similar_offers
 from database import engine, get_session, init_db
 from history import history_for
 from models import (
@@ -56,6 +56,7 @@ from models import (
     PushRegister,
     PushToken,
     ServiceStatus,
+    SimilarResponse,
     StoreStatus,
     TagInfo,
     Watch,
@@ -260,6 +261,29 @@ def get_offer(offer_id: int, session: Session = Depends(get_session)):
     if not offer:
         raise HTTPException(404, "Offer not found")
     return OfferRead.from_offer(offer)
+
+
+@app.get("/api/offers/{offer_id}/similar", response_model=SimilarResponse, tags=["offers"])
+def offer_similar(offer_id: int, session: Session = Depends(get_session)):
+    """
+    For one offer: the SAME product in other stores (strict match / barcode) and
+    SIMILAR products anywhere (same kind of thing, e.g. other waters). Pure
+    string matching - no external AI service involved.
+    """
+    offer = session.get(Offer, offer_id)
+    if not offer:
+        raise HTTPException(404, "Offer not found")
+    others = [o for o in session.exec(select(Offer)).all() if o.id != offer.id]
+    same = [o for o, _ in match_offers(others, offer.product_name, offer.barcode) if o.store != offer.store]
+    same_ids = {o.id for o in same}
+    # similar: the same KIND of product ("вода" -> other waters, "изворна" ones first), brand dropped
+    loose, q = similar_offers([o for o in others if o.id not in same_ids], offer)
+    return SimilarResponse(
+        offer=OfferRead.from_offer(offer),
+        same_elsewhere=[OfferRead.from_offer(o) for o in same[:10]],
+        similar=[OfferRead.from_offer(o, s) for o, s in loose[:20]],
+        query=q,
+    )
 
 
 @app.get("/api/offers/{offer_id}/history", response_model=OfferHistory, tags=["offers"])

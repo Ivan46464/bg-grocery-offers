@@ -38,6 +38,61 @@ def core_query(product_name: str, max_words: int = 4) -> str:
     return " ".join(words[:max_words]) or product_name.lower()
 
 
+_KIND_WORDS: Optional[set[str]] = None
+
+
+def _kind_vocab() -> set[str]:
+    """Generic product-kind words (вода, кашкавал, кафе…) taken from the tag keyword lists."""
+    global _KIND_WORDS
+    if _KIND_WORDS is None:
+        import tags
+        vocab: set[str] = set()
+        for lst in (tags.DAIRY, tags.MEAT, tags.FISH, tags.EGG, tags.LENT, tags.PRODUCE, tags.DRINKS, tags.BREAD, tags.SWEET, tags.HOUSEHOLD):
+            vocab.update(w.strip().lower() for w in lst if len(w.strip()) >= 3)
+        _KIND_WORDS = vocab
+    return _KIND_WORDS
+
+
+def kind_query(product_name: str) -> tuple[str, Optional[str]]:
+    """
+    (kind, descriptor) describing WHAT the product is, brand dropped:
+      'SAGUARO Изворна вода'            -> ('вода', 'изворна')
+      'LAVAZZA Кафе Espreso мляно 250г' -> ('кафе', 'espreso')
+      'COCA COLA Газирана напитка'      -> ('напитка', 'газирана')
+    `kind` drives the "similar products" search, `descriptor` only ranks results.
+    """
+    raw = [w for w in re.split(r"[\s,;()/]+", product_name) if w and not _UNIT_RE.match(w)]
+    # drop a leading ALL-CAPS brand run ("DIMITAR MADJAROV", "COCA COLA") when more words follow
+    i = 0
+    while i < len(raw) - 1 and raw[i] == raw[i].upper() and re.search(r"[A-ZА-Я]", raw[i]):
+        i += 1
+    words = [w.lower() for w in raw[i:]] or [w.lower() for w in raw]
+    vocab = _kind_vocab()
+
+    def is_kind(w: str) -> bool:
+        return len(w) >= 3 and any((w.startswith(v) or v.startswith(w)) and min(len(w), len(v)) >= 4 for v in vocab)
+
+    kind_idx = next((k for k, w in enumerate(words) if is_kind(w)), None)
+    if kind_idx is None:
+        return (words[0] if words else product_name.lower(), words[1] if len(words) > 1 else None)
+    kind = words[kind_idx]
+    neighbours = [w for w in (words[kind_idx - 1] if kind_idx > 0 else None, words[kind_idx + 1] if kind_idx + 1 < len(words) else None) if w and len(w) >= 3]
+    return kind, (neighbours[0] if neighbours else None)
+
+
+def similar_offers(offers: list[Offer], offer: Offer, limit: int = 20) -> tuple[list[tuple[Offer, int]], str]:
+    """Same KIND of product ('вода' -> other waters), descriptor matches first, then cheapest."""
+    from search import price_of
+
+    kind, descriptor = kind_query(offer.product_name)
+    hits = [(o, s) for o, s in search_offers(offers, kind, sort="price", threshold=75) if o.name_key != offer.name_key]
+    if descriptor:
+        d = re.compile(r"(?<!\w)" + re.escape(descriptor.lower()))   # "газирана" must not match "негазирана"
+        hits.sort(key=lambda t: (0 if d.search(t[0].product_name.lower()) else 1, price_of(t[0])))
+    label = f"{descriptor} {kind}" if descriptor else kind
+    return hits[:limit], label
+
+
 def _coverage(words: list[str], product_name: str) -> float:
     """Share of `words` that appear (fuzzily) as a word of `product_name`."""
     tokens = [t for t in re.split(r"[\s,;()/]+", product_name.lower()) if t]

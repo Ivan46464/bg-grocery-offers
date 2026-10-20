@@ -2,28 +2,37 @@ import React, { useEffect, useState } from "react";
 import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getOfferHistory } from "../api";
+import { getOfferHistory, getSimilar } from "../api";
 import { colors, money, radius } from "../theme";
 import { LowBadge, PromoBadges } from "./OfferCard";
 import Sparkline from "./Sparkline";
 import StoreBadge from "./StoreBadge";
 
 const fmtDate = (d) => (d ? `${d.slice(8, 10)}.${d.slice(5, 7)}.${d.slice(0, 4)}` : "–");
+const priceOf = (o) => o.effective_price || o.discounted_price;
 
 /**
- * Bottom-sheet with the full offer: big image, price, validity, 90-day trend,
- * and actions (add to cart, watch price, open store page).
+ * Bottom-sheet with the full offer: big image, price, validity, the same
+ * product in other stores, similar products, 90-day trend, and actions
+ * (add to cart, watch price, open store page). Tapping a suggested offer
+ * swaps the sheet to it.
  */
-export default function OfferSheet({ offer, onClose, onAddToCart, onWatch }) {
+export default function OfferSheet({ offer: initial, onClose, onAddToCart, onWatch }) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
+  const [offer, setOffer] = useState(initial);
   const [history, setHistory] = useState(null);
+  const [similar, setSimilar] = useState(null);
+
+  useEffect(() => setOffer(initial), [initial]);
 
   useEffect(() => {
     setHistory(null);
+    setSimilar(null);
     if (!offer) return;
     let alive = true;
     getOfferHistory(offer.id).then((h) => alive && setHistory(h)).catch(() => alive && setHistory({ points: [] }));
+    getSimilar(offer.id).then((s) => alive && setSimilar(s)).catch(() => alive && setSimilar({ same_elsewhere: [], similar: [] }));
     return () => {
       alive = false;
     };
@@ -83,6 +92,49 @@ export default function OfferSheet({ offer, onClose, onAddToCart, onWatch }) {
             {offer.tags?.length ? <Fact icon="pricetags-outline" label="Категория" value={offer.tags.join(" · ")} /> : null}
           </View>
 
+          {/* same product elsewhere */}
+          <Text style={styles.section}>Същият продукт в други магазини</Text>
+          {!similar ? (
+            <Text style={styles.muted}>Търсим…</Text>
+          ) : similar.same_elsewhere.length === 0 ? (
+            <Text style={styles.muted}>Не е на промоция другаде тази седмица.</Text>
+          ) : (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.hrow}>
+              {similar.same_elsewhere.map((o) => {
+                const diff = priceOf(o) - priceOf(offer);
+                return (
+                  <Pressable key={o.id} onPress={() => setOffer(o)} style={({ pressed }) => [styles.mini, pressed && { opacity: 0.7 }]}>
+                    <View style={styles.miniThumb}>{o.image_url ? <Image source={{ uri: o.image_url }} style={styles.image} resizeMode="contain" /> : <Ionicons name="cube-outline" size={18} color={colors.ink3} />}</View>
+                    <StoreBadge store={o.store} size="sm" />
+                    <Text style={styles.miniPrice}>{money(priceOf(o))}</Text>
+                    <Text style={[styles.miniDiff, { color: diff < 0 ? colors.success : diff > 0 ? colors.danger : colors.ink3 }]}>
+                      {diff < 0 ? `${money(diff)} по-евтино` : diff > 0 ? `+${money(diff)}` : "същата цена"}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
+
+          {/* similar products */}
+          {similar?.similar?.length > 0 && (
+            <>
+              <Text style={styles.section}>Подобни продукти{similar.query ? ` · „${similar.query}“` : ""}</Text>
+              {similar.similar.slice(0, 6).map((o) => (
+                <Pressable key={o.id} onPress={() => setOffer(o)} style={({ pressed }) => [styles.simRow, pressed && { opacity: 0.7 }]}>
+                  <View style={styles.simThumb}>{o.image_url ? <Image source={{ uri: o.image_url }} style={styles.image} resizeMode="contain" /> : <Ionicons name="cube-outline" size={16} color={colors.ink3} />}</View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.simName} numberOfLines={1}>
+                      {o.product_name}
+                    </Text>
+                    <StoreBadge store={o.store} size="sm" />
+                  </View>
+                  <Text style={styles.simPrice}>{money(priceOf(o))}</Text>
+                </Pressable>
+              ))}
+            </>
+          )}
+
           <Text style={styles.section}>Цена през последните 90 дни</Text>
           {history ? <Sparkline points={history.points} width={width - 48} current={offer.discounted_price} /> : <Text style={styles.muted}>Зареждане…</Text>}
           {offer.is_lowest_90d === false && offer.lowest_90d != null && (
@@ -141,6 +193,15 @@ const styles = StyleSheet.create({
   factLabel: { fontSize: 13, color: colors.ink3, width: 76 },
   factValue: { fontSize: 13, color: colors.ink, fontWeight: "600", flex: 1 },
   section: { fontSize: 13, fontWeight: "700", color: colors.ink2, marginTop: 20, marginBottom: 8, textTransform: "uppercase", letterSpacing: 0.4 },
+  hrow: { gap: 10, paddingVertical: 2 },
+  mini: { width: 118, backgroundColor: colors.surfaceAlt, borderRadius: 12, padding: 8, gap: 5, alignItems: "flex-start" },
+  miniThumb: { width: "100%", height: 56, borderRadius: 8, backgroundColor: colors.surface, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  miniPrice: { fontSize: 15, fontWeight: "800", color: colors.ink },
+  miniDiff: { fontSize: 11, fontWeight: "700" },
+  simRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.border },
+  simThumb: { width: 36, height: 36, borderRadius: 8, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  simName: { fontSize: 13, color: colors.ink, marginBottom: 3 },
+  simPrice: { fontWeight: "800", color: colors.ink },
   muted: { color: colors.ink3, fontSize: 13 },
   warn: { marginTop: 10, fontSize: 13, color: "#92400E", backgroundColor: colors.accentSoft, padding: 10, borderRadius: 10, lineHeight: 18 },
   actions: { flexDirection: "row", gap: 10, marginTop: 20 },
