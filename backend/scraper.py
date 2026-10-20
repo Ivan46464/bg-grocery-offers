@@ -208,13 +208,15 @@ class LidlScraper(BaseScraper):
 
     # --- CONFIG ------------------------------------------------------------
     BASE_URL = "https://www.lidl.bg"
+    # The storefront search with a wildcard lists EVERY product Lidl currently
+    # advertises (~650-950), 48 per page, server-rendered with data-grid-data.
+    # Category pages only embed their first 12 tiles, so they are just extras.
+    SEARCH_PAGE = "/q/search?q=*&offset={offset}"
+    PAGE_SIZE = 48
+    MAX_PAGES = 40
     PAGES = [
+        "/c/lidl-plus-promotsii/a10039565",    # Lidl Plus промоции (Plus-only prices)
         "/c/khrani-i-napitki/s10068374",       # Храни и напитки
-        "/c/plodove-i-zelenchutsi/a10074998",  # Плодове и зеленчуци
-        "/c/svalyame-tsenite/a10048470",       # Сваляме цените
-        "/c/aktsiya/a10104729",                # Акция
-        "/c/sedmitsa-xxl/a10104730",           # Седмица XXL
-        "/c/lidl-plus-promotsii/a10039565",    # Lidl Plus промоции
     ]
     TILE_ATTR = "data-grid-data"
     KEYS = {
@@ -228,17 +230,33 @@ class LidlScraper(BaseScraper):
     }
     # ----------------------------------------------------------------------
 
+    def _page_paths(self):
+        """Paginated wildcard search first (stops at the first empty page), then the extra pages."""
+        for n in range(self.MAX_PAGES):
+            yield self.SEARCH_PAGE.format(offset=n * self.PAGE_SIZE), True
+        for p in self.PAGES:
+            yield p, False
+
     def _scrape(self) -> list[ScrapedOffer]:
         offers: dict[str, ScrapedOffer] = {}   # productId -> offer (dedupe across pages)
         k = self.KEYS
-        for path in self.PAGES:
+        search_done = False
+        for path, is_search in self._page_paths():
+            if is_search and search_done:
+                continue
             try:
                 html = self._get(self.BASE_URL + path).text
             except httpx.HTTPError as exc:
                 log.warning("Lidl: %s skipped (%s)", path, exc)
+                if is_search:
+                    search_done = True
                 continue
             soup = self._soup(html)
-            for el in soup.select(f"[{self.TILE_ATTR}]"):
+            tiles = soup.select(f"[{self.TILE_ATTR}]")
+            if is_search and not tiles:
+                search_done = True          # search pages are contiguous: an empty page = past the end
+                continue
+            for el in tiles:
                 try:
                     item = json.loads(el[self.TILE_ATTR])
                 except (json.JSONDecodeError, KeyError):

@@ -16,7 +16,6 @@ import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
-import HowItWorks from "../components/HowItWorks";
 import { addOfferToCart, cartItemId, getDeviceToken, loadCart, loadPushToken, onCartChange } from "../storage";
 import { colors, radius } from "../theme";
 
@@ -134,7 +133,6 @@ export default function SearchScreen({ navigation }) {
         initialNumToRender={8}
         ListHeaderComponent={
           <View>
-            {!isSearching && !tag && <HowItWorks />}
             {!isSearching && (
               <View style={styles.popular}>
                 <Text style={styles.popularLabel}>Бързо търсене:</Text>
@@ -145,9 +143,15 @@ export default function SearchScreen({ navigation }) {
                 ))}
               </View>
             )}
-            <Text style={styles.resultsLabel}>
-              {isSearching ? `${offers.length} оферти за „${query.trim()}“ · натисни картата за детайли` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините оферти тази седмица" : "Най-големите отстъпки тази седмица"}
-            </Text>
+            <View style={styles.listHeader}>
+              <Text style={styles.resultsLabel}>
+                {isSearching ? `${offers.length} оферти за „${query.trim()}“` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините тази седмица" : "Най-големите отстъпки"}
+              </Text>
+              <Pressable onPress={() => setSort(sort === "price" ? "discount" : "price")} style={styles.sortBtn} hitSlop={8}>
+                <Ionicons name="swap-vertical" size={14} color={colors.primary} />
+                <Text style={styles.sortText}>{sort === "price" ? "Подредба: цена" : "Подредба: отстъпка"}</Text>
+              </Pressable>
+            </View>
           </View>
         }
         refreshing={loading}
@@ -172,24 +176,18 @@ export default function SearchScreen({ navigation }) {
 
       {ready && (
         <View style={styles.toolbar}>
-          {/* store toggles: coloured circles with the store initial */}
+          {/* store buttons with full names + "Всички" */}
           <View style={styles.storeRow}>
-            {STORE_ORDER.map((s) => {
-              const active = store === s;
-              const dim = store && !active;
+            {[{ key: null, label: "Всички", bg: colors.ink, fg: "#fff" }, ...STORE_ORDER.map((s) => ({ key: s, label: s, bg: STORES[s].bg, fg: STORES[s].fg }))].map((b) => {
+              const active = store === b.key;
               return (
-                <Pressable key={s} onPress={() => setStore(active ? null : s)} style={[styles.storeChip, { backgroundColor: STORES[s].bg, opacity: dim ? 0.35 : 1 }, active && styles.storeChipActive]} hitSlop={4}>
-                  <Text style={[styles.storeChipText, { color: STORES[s].fg }]}>{STORES[s].short}</Text>
+                <Pressable key={String(b.key)} onPress={() => setStore(b.key)} style={[styles.storeBtn, active && { backgroundColor: b.bg, borderColor: b.bg }]}>
+                  <Text style={[styles.storeBtnText, active && { color: b.fg }]} numberOfLines={1}>
+                    {b.label}
+                  </Text>
                 </Pressable>
               );
             })}
-            <Text style={styles.storeLabel} numberOfLines={1}>
-              {store ? `само ${store}` : "всички магазини"}
-            </Text>
-            <Pressable onPress={() => setSort(sort === "price" ? "discount" : "price")} style={styles.sortBtn} hitSlop={8}>
-              <Ionicons name="swap-vertical" size={14} color={colors.primary} />
-              <Text style={styles.sortText}>{sort === "price" ? "по цена" : "по отстъпка"}</Text>
-            </Pressable>
           </View>
           <Chips items={tagItems} value={tag} onChange={setTag} style={{ paddingVertical: 8 }} />
         </View>
@@ -206,13 +204,13 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   toolbar: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border, paddingTop: 10 },
   storeRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16 },
-  storeChip: { width: 32, height: 32, borderRadius: 16, alignItems: "center", justifyContent: "center" },
-  storeChipActive: { borderWidth: 2.5, borderColor: colors.ink },
-  storeChipText: { fontWeight: "900", fontSize: 13 },
-  storeLabel: { flex: 1, fontSize: 12, color: colors.ink3, marginLeft: 4 },
+  storeBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: "center" },
+  storeBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
+  row2: { flexDirection: "row", alignItems: "center", paddingRight: 16 },
   content: { flex: 1 },
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
-  resultsLabel: { fontSize: 13, color: colors.ink2, marginBottom: 10 },
+  listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },
+  resultsLabel: { fontSize: 13, color: colors.ink2, flex: 1 },
   popular: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 },
   popularLabel: { fontSize: 12, color: colors.ink3, marginRight: 2 },
   popularChip: { paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },

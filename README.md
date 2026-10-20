@@ -46,7 +46,7 @@ Market/
 
 | Store    | Status | How |
 |----------|--------|-----|
-| Lidl     | ✅ ~200 offers | product JSON embedded in `data-grid-data` on category pages |
+| Lidl     | ✅ ~670 offers | wildcard storefront search `/q/search?q=*&offset=N` (48/page, product JSON in `data-grid-data`) + Lidl Plus page |
 | Kaufland | ✅ ~850 offers | server-rendered `.k-product-tile` HTML, weekly validity per section |
 | Billa    | ✅ ~275 offers | ssbbilla.site's text transcription of the whole leaflet (billa.bg itself is image-only; no product images); falls back to broshuri.net |
 | Metro    | ✅ ~350 offers | shop.metro.bg search + variants JSON |
