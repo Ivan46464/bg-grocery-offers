@@ -30,7 +30,10 @@ import httpx
 from bs4 import BeautifulSoup
 from sqlmodel import Session, delete, select
 
-from models import Offer
+from barcode import extract_ean
+from history import annotate_lowest_90d, prune_history, record_history
+from models import Offer, name_key
+from tags import derive_tags, tags_to_str
 
 log = logging.getLogger("scraper")
 
@@ -58,6 +61,7 @@ class ScrapedOffer:
     product_url: Optional[str] = None
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
+    barcode: Optional[str] = None       # EAN-13 when the store exposes it
 
 
 _PRICE_RE = re.compile(r"(\d+(?:[.,]\d{1,2})?)")
@@ -292,16 +296,18 @@ class KauflandScraper(BaseScraper):
                         continue
                     seen.add((name, price))
                     href = tile.get("href") if tile.name == "a" else self._attr(tile, "a", "href")
+                    image = self._attr(tile, self.SEL["image"], "src", "data-src")
                     offers.append(
                         ScrapedOffer(
                             store=self.store,
                             product_name=name,
                             discounted_price=price,
                             original_price=parse_price(self._text(tile, self.SEL["old_price"])),
-                            image_url=self._attr(tile, self.SEL["image"], "src", "data-src"),
+                            image_url=image,
                             product_url=(self.BASE_URL + href) if href and href.startswith("/") else (href if href and href != "#" else url),
                             valid_from=valid_from,
                             valid_to=valid_to,
+                            barcode=extract_ean(image),   # branded goods: ".../5011026108033_BG_P"
                         )
                     )
         return offers
@@ -436,6 +442,7 @@ class MetroScraper(BaseScraper):
         "promo": "appliedPromotionInfo",     # {"name", "price", "startTime", "endTime"}
         "image": "imageUrlL",
         "bundle_id": "bettyBundleId",        # {"articleNumber", "variantNumber", "bundleNumber"}
+        "gtins": "gtins",                    # [{"number": "3800849224943"}] - real EANs are all digits
     }
     # ----------------------------------------------------------------------
 
@@ -490,6 +497,8 @@ class MetroScraper(BaseScraper):
                     if not price or not (old_price or promo.get("name")):
                         continue    # under the promo facet but no promo price applied (e.g. voucher only)
                     bid = bundle.get(k["bundle_id"]) or {}
+                    gtins = [g.get("number", "") for g in (bundle.get(k["gtins"]) or [])]
+                    ean = next((g for g in gtins if g.isdigit() and len(g) in (8, 12, 13, 14)), None)
                     offers.append(
                         ScrapedOffer(
                             store=self.store,
@@ -504,6 +513,7 @@ class MetroScraper(BaseScraper):
                             ) if bid.get("articleNumber") else None,
                             valid_from=_iso_date(promo.get("startTime")),
                             valid_to=_iso_date(promo.get("endTime")),
+                            barcode=ean,
                         )
                     )
         return offers
@@ -601,6 +611,28 @@ def _discount_percent(new: float, old: Optional[float]) -> Optional[int]:
     return None
 
 
+def store_offers(session: Session, store: str, offers: list[ScrapedOffer], is_mock: bool) -> list[Offer]:
+    """Replace one store's rows, derive tags/keys, append price history, flag 90-day lows."""
+    session.exec(delete(Offer).where(Offer.store == store))
+    rows: list[Offer] = []
+    for o in offers:
+        rows.append(
+            Offer(
+                **asdict(o),
+                name_key=name_key(o.product_name),
+                tags=tags_to_str(derive_tags(o.product_name)),
+                discount_percent=_discount_percent(o.discounted_price, o.original_price),
+                is_mock=is_mock,
+            )
+        )
+    session.add_all(rows)
+    session.commit()
+    if not is_mock:
+        record_history(session, rows)
+        annotate_lowest_90d(session, store)
+    return rows
+
+
 def run_all_scrapers(session: Session) -> dict[str, dict]:
     """
     Run every scraper, replace each store's rows in the DB, return a summary:
@@ -613,20 +645,10 @@ def run_all_scrapers(session: Session) -> dict[str, dict]:
         if not offers:
             offers = mock_offers(scraper.store)
             is_mock = True
-
-        # Replace this store's offers atomically.
-        session.exec(delete(Offer).where(Offer.store == scraper.store))
-        for o in offers:
-            session.add(
-                Offer(
-                    **asdict(o),
-                    discount_percent=_discount_percent(o.discounted_price, o.original_price),
-                    is_mock=is_mock,
-                )
-            )
-        session.commit()
+        store_offers(session, scraper.store, offers, is_mock)
         summary[scraper.store] = {"count": len(offers), "mock": is_mock}
         log.info("%s: stored %d offers%s", scraper.store, len(offers), " (MOCK)" if is_mock else "")
+    prune_history(session)
     return summary
 
 

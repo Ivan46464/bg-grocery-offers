@@ -88,7 +88,8 @@ def transliterate(text: str) -> str:
 
 def query_variants(q: str) -> list[str]:
     """All the strings we will try to match against a product name."""
-    q = q.strip().lower()
+    # "Coca-Cola" / "кисело-мляко" -> "coca cola": punctuation becomes a word break
+    q = " ".join(_TOKEN_RE.split(q.strip().lower())).strip()
     variants = [q]
     if q in SYNONYMS:
         variants += SYNONYMS[q]
@@ -139,6 +140,16 @@ def score_offer(name: str, variants: Iterable[str]) -> int:
     return best
 
 
+def sort_hits(hits: list[tuple[Offer, int]], sort: str) -> list[tuple[Offer, int]]:
+    if sort == "score":
+        hits.sort(key=lambda t: (-t[1], t[0].discounted_price))
+    elif sort == "discount":
+        hits.sort(key=lambda t: (-(t[0].discount_percent or 0), t[0].discounted_price))
+    else:  # price
+        hits.sort(key=lambda t: (t[0].discounted_price, -t[1]))
+    return hits
+
+
 def search_offers(
     offers: list[Offer],
     q: str,
@@ -152,12 +163,4 @@ def search_offers(
     """
     variants = query_variants(q)
     scored = [(o, score_offer(o.product_name, variants)) for o in offers]
-    hits = [(o, s) for o, s in scored if s >= threshold]
-
-    if sort == "score":
-        hits.sort(key=lambda t: (-t[1], t[0].discounted_price))
-    elif sort == "discount":
-        hits.sort(key=lambda t: (-(t[0].discount_percent or 0), t[0].discounted_price))
-    else:  # price
-        hits.sort(key=lambda t: (t[0].discounted_price, -t[1]))
-    return hits
+    return sort_hits([(o, s) for o, s in scored if s >= threshold], sort)

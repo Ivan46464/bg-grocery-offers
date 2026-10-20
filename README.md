@@ -2,22 +2,40 @@
 
 Search the weekly promotions of **Lidl, Kaufland, Billa and Metro** in one place and see the cheapest match first.
 
+## Features
+
+| Tab | What it does |
+|-----|--------------|
+| **Оферти** | Fuzzy search (BG / EN / Latin-letter typing, typo-tolerant), cheapest first. Quick-filter chips: Постни, Био, Млечни, Месо, Плодове, Напитки, Хляб, Сладко, Дом. Store chips, sort by price or discount. Tap an offer → details, 90-day price trend, add to cart / watch. |
+| **Количка** | Smart cart: type what you need → *best single store* (fewest missing items, lowest total) and *best split trip* (each item where it's cheapest) with the € saved. |
+| **Скенер** | Point the camera at an EAN-13 in the store → exact barcode matches (Metro, Kaufland publish them) or name matches via Open Food Facts → "cheaper elsewhere?" |
+| **Наблюдение** | Watchlist: product + optional target price. Re-checked after every scrape; push notification (needs FCM, see §6) or in-app alert. |
+| Fake-discount detector | Every scrape is appended to `price_history`; an offer gets a green **Най-ниска за 90 дни** badge or an amber **Беше X €** warning when it was cheaper recently. |
+
 ```
 Market/
 ├── backend/            FastAPI + SQLite + scrapers        (Python 3.11+)
 │   ├── main.py         API endpoints, startup/periodic scraping
-│   ├── models.py       Offer table (SQLModel)
-│   ├── database.py     engine / session
+│   ├── models.py       Offer, PriceHistory, PushToken, Watch tables + API schemas
+│   ├── database.py     engine / session / tiny auto-migration
 │   ├── scraper.py      one scraper class per store + mock fallback
 │   ├── search.py       fuzzy search (RapidFuzz, BG/EN synonyms, transliteration)
+│   ├── tags.py         keyword → category chips (постни, млечни, …)
+│   ├── history.py      price history + 90-day-low detection
+│   ├── cart.py         smart-cart optimiser
+│   ├── barcode.py      EAN lookup (+ Open Food Facts fallback)
+│   ├── push.py         watchlist evaluation + Expo push
 │   └── requirements.txt
 ├── mobile/             Expo / React Native app              (Node 18+)
-│   ├── App.js          main screen (search bar, filters, FlatList)
+│   ├── App.js          bottom tabs, safe areas, notification handler
 │   ├── src/config.js   ← API URL lives here
-│   ├── src/api.js      fetch wrapper
-│   ├── src/components/ SearchBar, OfferCard, StoreBadge, StoreFilter, EmptyState
-│   ├── app.json        app name, Android package id
+│   ├── src/api.js      fetch wrapper (70 s timeout, cold-start aware)
+│   ├── src/theme.js    colours / spacing / typography tokens
+│   ├── src/screens/    SearchScreen, CartScreen, ScannerScreen, WatchScreen
+│   ├── src/components/ SearchBar, Chips, OfferCard, OfferSheet, Sparkline, …
+│   ├── app.json        app name, Android package id, camera/notification plugins
 │   └── eas.json        EAS build profiles (preview = .apk)
+├── .github/workflows/keepalive.yml   pings the API every 10 min so Render never sleeps
 ├── render.yaml         one-click Render deploy blueprint
 └── README.md
 ```
@@ -77,10 +95,17 @@ python scraper.py
 
 ### API reference
 
-| Method | Path | Query params | Notes |
+| Method | Path | Query / body | Notes |
 |--------|------|--------------|-------|
-| GET | `/api/search` | `q` (required), `store`, `sort=price\|score\|discount`, `limit` | fuzzy search, cheapest first |
-| GET | `/api/offers` | `store`, `limit`, `offset` | browse without a query |
+| GET | `/api/status` | – | `scraping` flag + per-store counts (app polls this on cold start) |
+| GET | `/api/tags` | `store` | quick-filter chips with counts |
+| GET | `/api/search` | `q` (required), `store`, `tag`, `sort=price\|score\|discount`, `limit` | fuzzy search, cheapest first |
+| GET | `/api/offers` | `store`, `tag`, `sort=price\|discount\|newest`, `limit`, `offset` | browse without a query |
+| GET | `/api/offers/{id}/history` | `days` | price points for the trend line |
+| GET | `/api/barcode/{ean}` | – | exact + similar offers for a scanned code |
+| POST | `/api/cart/optimize` | `{"items": ["яйца","мляко"]}` | best single store + best split trip |
+| POST | `/api/push/register` | `{"token": "ExponentPushToken[..]"}` | save a push token |
+| GET/POST/DELETE | `/api/watch` | `token`, `{"token","query","target_price"}` | watchlist |
 | GET | `/api/stores` | – | per-store count, `is_mock`, `last_scraped` |
 | POST | `/api/refresh` | `token` | re-run scrapers now (protected by `REFRESH_TOKEN`) |
 | GET | `/health` | – | for uptime pings |
@@ -160,16 +185,15 @@ SQLite lives on the service's disk, which Render **wipes on every deploy/restart
 That's fine here: the DB is a cache, and `main.py` re-scrapes on startup whenever it's empty.
 If you ever want persistence, add a Render Postgres (free 30 days, then $7) and set `DATABASE_URL`.
 
-### 2.4 Keep it awake + refresh daily (free, optional)
+### 2.4 Keep it awake (already set up)
 
-Use https://cron-job.org (free):
+[.github/workflows/keepalive.yml](.github/workflows/keepalive.yml) runs on GitHub's free cron and hits
+`/health` every 10 minutes, so the instance never spins down and the app opens instantly. While awake
+the API re-scrapes every 12 h by itself. Check it under the repo's **Actions** tab; GitHub pauses
+scheduled workflows after 60 days without commits — a push or a manual "Run workflow" resumes it.
 
-| Job | URL | Schedule |
-|-----|-----|----------|
-| keep-alive | `https://<your-url>/health` | every 10 min |
-| refresh | `https://<your-url>/api/refresh?token=<REFRESH_TOKEN>` (method **POST**) | daily 06:00 |
-
-Get `REFRESH_TOKEN` from Render → your service → **Environment** (the blueprint generated one).
+If you ever need a manual re-scrape: `curl -X POST "https://<your-url>/api/refresh?token=<REFRESH_TOKEN>"`
+(`REFRESH_TOKEN` is in Render → your service → **Environment**).
 
 ---
 
@@ -247,7 +271,22 @@ eas build -p android --profile preview
 
 ---
 
-## 5. When a scraper breaks
+## 5. Price history on the free tier
+
+`price_history` lives in the same SQLite file, and Render's free disk is wiped on every deploy, so the
+90-day badges only accumulate between deploys. For permanent history create a free Postgres (e.g.
+https://neon.tech), add `psycopg[binary]` to `requirements.txt`, and set `DATABASE_URL` on Render to the
+`postgresql://…` connection string — nothing else changes.
+
+## 6. Push notifications (optional)
+
+The watchlist works without any setup: the app shows hits in-app and fires a local notification when
+opened. For real background push on Android you need Firebase Cloud Messaging credentials on the EAS
+project: follow https://docs.expo.dev/push-notifications/fcm-credentials/ (create a Firebase project,
+download `google-services.json`, `eas credentials` → upload), then rebuild the APK. After that
+`POST /api/push/register` receives `ExponentPushToken[…]` tokens and the backend pushes through Expo.
+
+## 7. When a scraper breaks
 
 Each class in [backend/scraper.py](backend/scraper.py) has a CONFIG block (URLs, CSS selectors or JSON keys) at the top:
 

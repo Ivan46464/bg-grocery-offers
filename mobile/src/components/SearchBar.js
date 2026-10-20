@@ -1,30 +1,28 @@
 import React from "react";
-import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { Pressable, StyleSheet, TextInput, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
+import { colors, radius, shadow } from "../theme";
 
-/**
- * Prominent search input with a clear (×) button.
- * Fully controlled: parent owns `value`.
- */
-export default function SearchBar({ value, onChangeText, onSubmit, autoFocus = false }) {
+/** Prominent search input with a clear (×) button. Fully controlled. */
+export default function SearchBar({ value, onChangeText, onSubmit, placeholder = "Търси продукт… сирене, cheese, кафе", autoFocus = false }) {
   return (
     <View style={styles.wrap}>
-      <Text style={styles.icon}>⌕</Text>
+      <Ionicons name="search" size={20} color={colors.ink3} style={{ marginRight: 8 }} />
       <TextInput
         style={styles.input}
         value={value}
         onChangeText={onChangeText}
         onSubmitEditing={onSubmit}
-        placeholder="Търси продукт… (сирене, cheese, кафе)"
-        placeholderTextColor="#94A3B8"
+        placeholder={placeholder}
+        placeholderTextColor={colors.ink3}
         autoCorrect={false}
         autoCapitalize="none"
         returnKeyType="search"
         autoFocus={autoFocus}
-        clearButtonMode="never"
       />
       {value.length > 0 && (
-        <Pressable onPress={() => onChangeText("")} hitSlop={10} style={styles.clear} accessibilityLabel="Clear search">
-          <Text style={styles.clearText}>×</Text>
+        <Pressable onPress={() => onChangeText("")} hitSlop={10} style={styles.clear} accessibilityLabel="Изчисти">
+          <Ionicons name="close" size={16} color={colors.ink2} />
         </Pressable>
       )}
     </View>
@@ -35,25 +33,12 @@ const styles = StyleSheet.create({
   wrap: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
     paddingHorizontal: 14,
-    height: 54,
-    shadowColor: "#0F172A",
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    shadowOffset: { width: 0, height: 6 },
-    elevation: 6,
+    height: 52,
+    ...shadow.float,
   },
-  icon: { fontSize: 22, color: "#64748B", marginRight: 8, marginTop: -2 },
-  input: { flex: 1, fontSize: 17, color: "#0F172A", height: "100%" },
-  clear: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: "#E2E8F0",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  clearText: { fontSize: 18, lineHeight: 20, color: "#334155", fontWeight: "600" },
+  input: { flex: 1, fontSize: 16, color: colors.ink, height: "100%" },
+  clear: { width: 26, height: 26, borderRadius: 13, backgroundColor: colors.border, alignItems: "center", justifyContent: "center" },
 });

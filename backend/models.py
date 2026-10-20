@@ -1,20 +1,35 @@
 """
 Database models (SQLModel = SQLAlchemy + Pydantic).
 
-One table: `offers`. Every row is a single promotional offer from one store.
-Scrapers wipe and re-insert a store's rows on each refresh, so the table
-always reflects "what is on promotion right now".
+Tables
+  offers         current promotions (replaced per store on every scrape)
+  price_history  one row per (store, product, price) observation - never overwritten,
+                 so we can tell whether a "promo" really is the lowest price in 90 days
+  push_tokens    Expo push tokens of installed apps
+  watches        saved searches with an optional target price -> push alert on a hit
 """
+import re
 from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlmodel import Field, SQLModel
 
 
-def _utcnow() -> datetime:
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+_KEY_RE = re.compile(r"[^\w]+", re.UNICODE)
+
+
+def name_key(product_name: str) -> str:
+    """Stable key for 'the same product' across scrapes: lowercase, punctuation stripped."""
+    return " ".join(t for t in _KEY_RE.split(product_name.lower()) if t)[:200]
+
+
+# --------------------------------------------------------------------------- #
+# Tables
+# --------------------------------------------------------------------------- #
 class Offer(SQLModel, table=True):
     __tablename__ = "offers"
 
@@ -22,6 +37,7 @@ class Offer(SQLModel, table=True):
 
     store: str = Field(index=True)              # "Lidl" | "Kaufland" | "Billa" | "Metro"
     product_name: str = Field(index=True)       # e.g. "Краве сирене Родна стряха 400 г"
+    name_key: str = Field(default="", index=True)
 
     original_price: Optional[float] = None      # price before the promotion (EUR), may be unknown
     discounted_price: float                     # current promo price (EUR)
@@ -29,14 +45,61 @@ class Offer(SQLModel, table=True):
 
     image_url: Optional[str] = None
     product_url: Optional[str] = None           # link back to the store page
+    barcode: Optional[str] = Field(default=None, index=True)   # EAN-13 when the store exposes it
 
     valid_from: Optional[date] = None
     valid_to: Optional[date] = None
 
+    tags: str = ""                              # comma-separated: "млечни,био"
+    lowest_90d: Optional[float] = None          # min price seen for this product in the last 90 days
+    is_lowest_90d: Optional[bool] = None        # True = this promo is the real low; None = no history yet
+
     is_mock: bool = False                       # True when the row came from fallback demo data
-    scraped_at: datetime = Field(default_factory=_utcnow)
+    scraped_at: datetime = Field(default_factory=utcnow)
 
 
+class PriceHistory(SQLModel, table=True):
+    __tablename__ = "price_history"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    store: str = Field(index=True)
+    name_key: str = Field(index=True)
+    product_name: str
+    barcode: Optional[str] = Field(default=None, index=True)
+    price: float
+    original_price: Optional[float] = None
+    seen_at: datetime = Field(default_factory=utcnow, index=True)
+
+
+class PushToken(SQLModel, table=True):
+    __tablename__ = "push_tokens"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(index=True, unique=True)     # "ExponentPushToken[...]" or a device id for in-app alerts
+    platform: str = "android"
+    created_at: datetime = Field(default_factory=utcnow)
+    last_seen: datetime = Field(default_factory=utcnow)
+
+
+class Watch(SQLModel, table=True):
+    __tablename__ = "watches"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    token: str = Field(index=True)                  # owner (push token / device id)
+    query: str                                      # "кафе", "сирене маджаров", ...
+    target_price: Optional[float] = None            # alert when price <= target; None = any promo
+    store: Optional[str] = None                     # optional store restriction
+    created_at: datetime = Field(default_factory=utcnow)
+    last_hit_offer_id: Optional[int] = None         # offer we last alerted about (avoid repeats)
+    last_hit_price: Optional[float] = None
+    last_hit_name: Optional[str] = None
+    last_hit_store: Optional[str] = None
+    last_notified_at: Optional[datetime] = None
+
+
+# --------------------------------------------------------------------------- #
+# API shapes
+# --------------------------------------------------------------------------- #
 class OfferRead(SQLModel):
     """Shape returned by the API (adds the fuzzy-match score for search results)."""
 
@@ -48,10 +111,36 @@ class OfferRead(SQLModel):
     discount_percent: Optional[int]
     image_url: Optional[str]
     product_url: Optional[str]
+    barcode: Optional[str]
     valid_from: Optional[date]
     valid_to: Optional[date]
+    tags: list[str] = []
+    lowest_90d: Optional[float] = None
+    is_lowest_90d: Optional[bool] = None
     is_mock: bool
     score: Optional[int] = None
+
+    @classmethod
+    def from_offer(cls, o: Offer, score: Optional[int] = None) -> "OfferRead":
+        data = o.model_dump()
+        data["tags"] = [t for t in (o.tags or "").split(",") if t]
+        return cls(**data, score=score)
+
+
+class HistoryPoint(SQLModel):
+    seen_at: datetime
+    price: float
+    original_price: Optional[float] = None
+
+
+class OfferHistory(SQLModel):
+    offer_id: int
+    store: str
+    product_name: str
+    points: list[HistoryPoint]
+    lowest_90d: Optional[float]
+    highest_90d: Optional[float]
+    is_lowest_90d: Optional[bool]
 
 
 class StoreStatus(SQLModel):
@@ -59,3 +148,84 @@ class StoreStatus(SQLModel):
     offers: int
     is_mock: bool
     last_scraped: Optional[datetime]
+
+
+class ServiceStatus(SQLModel):
+    scraping: bool
+    total_offers: int
+    last_scrape_finished: Optional[datetime]
+    stores: list[StoreStatus]
+
+
+class TagInfo(SQLModel):
+    tag: str
+    label: str
+    count: int
+
+
+# ---- cart -------------------------------------------------------------------
+class CartRequest(SQLModel):
+    items: list[str]                                # ["яйца", "мляко", "кафе"]
+    stores: Optional[list[str]] = None              # restrict to these stores (default: all)
+
+
+class CartItemMatch(SQLModel):
+    item: str
+    offer: Optional[OfferRead] = None               # best offer for this item at this store (None = not on promo)
+
+
+class CartStorePlan(SQLModel):
+    store: str
+    total: float
+    found: int
+    missing: list[str]
+    items: list[CartItemMatch]
+
+
+class CartSplitStop(SQLModel):
+    store: str
+    items: list[CartItemMatch]
+    subtotal: float
+
+
+class CartResponse(SQLModel):
+    items: list[str]
+    best_single_store: Optional[CartStorePlan]
+    stores: list[CartStorePlan]                     # every store, cheapest first
+    best_split: list[CartSplitStop]
+    split_total: float
+    split_missing: list[str]
+    savings_vs_single: float                        # best_single.total - split_total (only over items both cover)
+
+
+# ---- barcode ----------------------------------------------------------------
+class BarcodeResponse(SQLModel):
+    barcode: str
+    product_name: Optional[str]                     # resolved name (from our data or Open Food Facts)
+    source: str                                     # "offers" | "openfoodfacts" | "unknown"
+    exact: list[OfferRead]                          # offers carrying this exact barcode
+    similar: list[OfferRead]                        # fuzzy matches by name, cheapest first
+
+
+# ---- watch / push -----------------------------------------------------------
+class PushRegister(SQLModel):
+    token: str
+    platform: str = "android"
+
+
+class WatchCreate(SQLModel):
+    token: str
+    query: str
+    target_price: Optional[float] = None
+    store: Optional[str] = None
+
+
+class WatchRead(SQLModel):
+    id: int
+    query: str
+    target_price: Optional[float]
+    store: Optional[str]
+    created_at: datetime
+    current_best: Optional[OfferRead] = None        # cheapest matching offer right now
+    hit: bool = False                               # current_best meets the target
+    last_notified_at: Optional[datetime]

@@ -1,167 +1,65 @@
 /**
  * BG Оферти - search the weekly promotions of Lidl, Kaufland, Billa and Metro.
  *
- * Screen layout
- *   header   : title + "data from N stores" hint
- *   SearchBar: debounced; every keystroke (after 400 ms idle) hits /api/search
- *   StoreFilter chips
- *   FlatList : OfferCard rows, cheapest first; first row is highlighted as best deal
- *
- * State lives in plain hooks - no external state library needed for this size.
+ * Tabs:  Оферти (search)  ·  Количка (smart cart)  ·  Скенер (barcode)  ·  Наблюдение (price alerts)
+ * Safe areas: every screen uses ScreenHeader (top inset) and the tab bar gets the
+ * bottom inset from react-navigation + SafeAreaProvider, so nothing hides behind
+ * the status bar or the Android navigation buttons.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Keyboard, SafeAreaView, StatusBar, StyleSheet, Text, View } from "react-native";
+import React from "react";
+import { StatusBar } from "expo-status-bar";
+import { NavigationContainer, DefaultTheme } from "@react-navigation/native";
+import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
+import { SafeAreaProvider } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
+import * as Notifications from "expo-notifications";
 
-import { getStores, listOffers, searchOffers } from "./src/api";
-import EmptyState from "./src/components/EmptyState";
-import OfferCard from "./src/components/OfferCard";
-import SearchBar from "./src/components/SearchBar";
-import StoreFilter from "./src/components/StoreFilter";
-import { SEARCH_DEBOUNCE_MS } from "./src/config";
+import { ToastProvider } from "./src/components/Toast";
+import CartScreen from "./src/screens/CartScreen";
+import ScannerScreen from "./src/screens/ScannerScreen";
+import SearchScreen from "./src/screens/SearchScreen";
+import WatchScreen from "./src/screens/WatchScreen";
+import { colors } from "./src/theme";
+
+// Show notifications even while the app is in the foreground.
+Notifications.setNotificationHandler({
+  handleNotification: async () => ({ shouldShowBanner: true, shouldShowList: true, shouldPlaySound: false, shouldSetBadge: false }),
+});
+
+const Tab = createBottomTabNavigator();
+
+const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.primary } };
+
+const ICONS = {
+  Search: ["search", "search-outline"],
+  Cart: ["basket", "basket-outline"],
+  Scanner: ["barcode", "barcode-outline"],
+  Watch: ["notifications", "notifications-outline"],
+};
 
 export default function App() {
-  const [query, setQuery] = useState("");
-  const [store, setStore] = useState(null); // null = all stores
-  const [offers, setOffers] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [storeStatus, setStoreStatus] = useState([]);
-
-  // One in-flight request at a time: abort the previous when the input changes.
-  const abortRef = useRef(null);
-
-  const load = useCallback(async (q, s) => {
-    abortRef.current?.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
-
-    setLoading(true);
-    setError(null);
-    try {
-      const trimmed = q.trim();
-      const data = trimmed
-        ? await searchOffers(trimmed, { store: s, signal: controller.signal })
-        : await listOffers({ store: s, signal: controller.signal });
-      if (!controller.signal.aborted) setOffers(data);
-    } catch (err) {
-      if (!controller.signal.aborted) {
-        setOffers([]);
-        setError(err.message);
-      }
-    } finally {
-      if (!controller.signal.aborted) setLoading(false);
-    }
-  }, []);
-
-  // Debounce typing. Also re-run when the store filter changes.
-  useEffect(() => {
-    const t = setTimeout(() => load(query, store), query ? SEARCH_DEBOUNCE_MS : 0);
-    return () => clearTimeout(t);
-  }, [query, store, load]);
-
-  // Once on mount: which stores have data, and is any of it demo data?
-  useEffect(() => {
-    getStores().then(setStoreStatus).catch(() => {});
-  }, []);
-
-  const liveStores = storeStatus.filter((s) => s.offers > 0 && !s.is_mock).length;
-  const mockStores = storeStatus.filter((s) => s.is_mock).map((s) => s.store);
-  const isSearching = query.trim().length > 0;
-
-  const renderItem = useCallback(
-    ({ item, index }) => <OfferCard offer={item} isBest={isSearching && index === 0} />,
-    [isSearching]
-  );
-
-  let content;
-  if (loading && offers.length === 0) {
-    content = (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#0F172A" />
-        <Text style={styles.hint}>Търсим най-добрите оферти…</Text>
-      </View>
-    );
-  } else if (error) {
-    content = (
-      <EmptyState emoji="⚠️" title="Няма връзка със сървъра" subtitle={error} actionLabel="Опитай пак" onAction={() => load(query, store)} />
-    );
-  } else if (offers.length === 0) {
-    content = isSearching ? (
-      <EmptyState title={`Нищо за „${query.trim()}“`} subtitle="Опитай с друга дума - например „сирене“, „кафе“ или на английски „cheese“." />
-    ) : (
-      <EmptyState emoji="🛒" title="Няма оферти" subtitle="Сървърът още зарежда данните. Опитай след малко." />
-    );
-  } else {
-    content = (
-      <FlatList
-        data={offers}
-        keyExtractor={(item) => String(item.id)}
-        renderItem={renderItem}
-        contentContainerStyle={styles.list}
-        keyboardShouldPersistTaps="handled"
-        onScrollBeginDrag={Keyboard.dismiss}
-        ListHeaderComponent={
-          <Text style={styles.resultsLabel}>
-            {isSearching ? `${offers.length} оферти за „${query.trim()}“ · най-евтино първо` : "Най-евтините оферти тази седмица"}
-          </Text>
-        }
-        refreshing={loading}
-        onRefresh={() => load(query, store)}
-      />
-    );
-  }
-
   return (
-    <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-      <View style={styles.header}>
-        <Text style={styles.title}>BG Оферти</Text>
-        <Text style={styles.subtitle}>
-          Lidl · Kaufland · Billa · Metro
-          {storeStatus.length > 0 && ` · ${liveStores}/${storeStatus.length} с реални данни`}
-        </Text>
-        <SearchBar value={query} onChangeText={setQuery} onSubmit={Keyboard.dismiss} />
-      </View>
-
-      <View style={styles.filters}>
-        <StoreFilter value={store} onChange={setStore} />
-      </View>
-
-      {mockStores.length > 0 && (
-        <Text style={styles.mockBanner}>Демо данни за: {mockStores.join(", ")} (скрейперът още не е настроен)</Text>
-      )}
-
-      <View style={styles.content}>{content}</View>
-    </SafeAreaView>
+    <SafeAreaProvider>
+      <StatusBar style="light" translucent backgroundColor="transparent" />
+      <ToastProvider>
+        <NavigationContainer theme={navTheme}>
+          <Tab.Navigator
+            screenOptions={({ route }) => ({
+              headerShown: false,
+              tabBarActiveTintColor: colors.primary,
+              tabBarInactiveTintColor: colors.ink3,
+              tabBarLabelStyle: { fontSize: 11, fontWeight: "700" },
+              tabBarStyle: { backgroundColor: colors.surface, borderTopColor: colors.border, height: 62, paddingTop: 6 },
+              tabBarIcon: ({ focused, color, size }) => <Ionicons name={focused ? ICONS[route.name][0] : ICONS[route.name][1]} size={size} color={color} />,
+            })}
+          >
+            <Tab.Screen name="Search" component={SearchScreen} options={{ title: "Оферти" }} />
+            <Tab.Screen name="Cart" component={CartScreen} options={{ title: "Количка" }} />
+            <Tab.Screen name="Scanner" component={ScannerScreen} options={{ title: "Скенер" }} />
+            <Tab.Screen name="Watch" component={WatchScreen} options={{ title: "Наблюдение" }} />
+          </Tab.Navigator>
+        </NavigationContainer>
+      </ToastProvider>
+    </SafeAreaProvider>
   );
 }
-
-const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: "#F1F5F9" },
-  header: {
-    backgroundColor: "#0F172A",
-    paddingHorizontal: 16,
-    paddingTop: 16,
-    paddingBottom: 26,
-    borderBottomLeftRadius: 24,
-    borderBottomRightRadius: 24,
-  },
-  title: { color: "#FFFFFF", fontSize: 28, fontWeight: "800", letterSpacing: -0.5 },
-  subtitle: { color: "#94A3B8", fontSize: 13, marginTop: 2, marginBottom: 16 },
-  filters: { paddingHorizontal: 16, paddingTop: 12 },
-  mockBanner: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    fontSize: 12,
-    color: "#92400E",
-    backgroundColor: "#FEF3C7",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-  },
-  content: { flex: 1 },
-  list: { paddingHorizontal: 16, paddingTop: 8, paddingBottom: 24 },
-  resultsLabel: { fontSize: 13, color: "#64748B", marginBottom: 10, marginTop: 4 },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", gap: 12 },
-  hint: { color: "#64748B" },
-});

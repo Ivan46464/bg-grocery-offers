@@ -3,21 +3,25 @@
     "name": "BG Оферти",
     "slug": "bg-grocery-offers",
     "owner": "ivan464",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "splash": {
-      "backgroundColor": "#0F172A"
+      "backgroundColor": "#0B1220"
     },
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "infoPlist": {
+        "NSCameraUsageDescription": "Камерата се използва за сканиране на баркодове в магазина."
+      }
     },
     "android": {
       "package": "com.ilko.bgoffers",
-      "versionCode": 1,
+      "versionCode": 2,
+      "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
-        "backgroundColor": "#0F172A",
+        "backgroundColor": "#0B1220",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -26,6 +30,20 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Камерата се използва за сканиране на баркодове в магазина."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#0F766E"
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "4d4a3acf-edb1-4292-8001-e8fc80bf339d"
