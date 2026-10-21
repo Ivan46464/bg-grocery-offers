@@ -20,4 +20,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping /health
-        run: curl -fsS --max-time 90 https://bg-grocery-offers-api.onrender.com/health
+        run: curl -fsS --max-time 90 https://bg-grocery-offers-api-f0ez.onrender.com/health

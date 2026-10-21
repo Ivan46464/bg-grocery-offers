@@ -184,10 +184,10 @@ git push -u origin main
    * Instance type: **Free**
    * Environment → add `PYTHON_VERSION` = `3.12.7` and `REFRESH_TOKEN` = any long random string
 3. Wait ~2 min for the first deploy. Your URL will be like
-   `https://bg-grocery-offers-api.onrender.com` (copy it — the app needs it).
+   `https://bg-grocery-offers-api-f0ez.onrender.com` (copy it — the app needs it).
 4. Check: `https://<your-url>/api/stores` should list 4 stores with counts.
 
-**Current deployment:** `https://bg-grocery-offers-api.onrender.com`, created from the public repo URL
+**Current deployment:** `https://bg-grocery-offers-api-f0ez.onrender.com`, created from the public repo URL
 (GitHub account not connected to Render). That mode has **no auto-deploy**: after a `git push`, open the
 service on https://dashboard.render.com → **Manual Deploy → Deploy latest commit**. To get auto-deploy on push,
 connect your GitHub account in Render (Settings → Git provider) and re-link the repo.
@@ -200,7 +200,7 @@ If you ever want persistence, add a Render Postgres (free 30 days, then $7) and 
 
 ### 2.4 Keep it awake (already set up)
 
-A **cron-job.org** job (account: the app owner's) requests `https://bg-grocery-offers-api.onrender.com/health`
+A **cron-job.org** job (account: the app owner's) requests `https://bg-grocery-offers-api-f0ez.onrender.com/health`
 **every 5 minutes**, so the free instance never spins down and the app opens instantly. While awake the API
 re-scrapes every 12 h by itself. Manage it at https://console.cron-job.org/jobs.
 
@@ -217,7 +217,7 @@ If you ever need a manual re-scrape: `curl -X POST "https://<your-url>/api/refre
 Open [mobile/src/config.js](mobile/src/config.js) and change one line:
 
 ```js
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://bg-grocery-offers-api.onrender.com").replace(/\/$/, "");
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://bg-grocery-offers-api-f0ez.onrender.com").replace(/\/$/, "");
 ```
 
 (or copy `mobile/.env.example` to `mobile/.env` and set `EXPO_PUBLIC_API_URL` there).

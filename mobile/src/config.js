@@ -3,13 +3,13 @@
  *
  * API_URL - where the FastAPI backend lives. ONE place to change.
  *
- *   Deployed:        "https://bg-grocery-offers-api.onrender.com"
+ *   Deployed:        "https://bg-grocery-offers-api-f0ez.onrender.com"
  *   Local (emulator) "http://10.0.2.2:8000"      (Android emulator's alias for your PC)
  *   Local (phone)    "http://192.168.1.23:8000"  (your PC's LAN IP, same Wi-Fi)
  *
  * You can also set EXPO_PUBLIC_API_URL in a `.env` file instead of editing this.
  */
-export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://bg-grocery-offers-api.onrender.com").replace(/\/$/, "");
+export const API_URL = (process.env.EXPO_PUBLIC_API_URL || "https://bg-grocery-offers-api-f0ez.onrender.com").replace(/\/$/, "");
 
 /** How long to wait after the user stops typing before searching (ms). */
 export const SEARCH_DEBOUNCE_MS = 400;
