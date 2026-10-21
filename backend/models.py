@@ -119,6 +119,11 @@ class ListInbox(SQLModel, table=True):
     item_name: str = Field(index=True)
     added_by: str = "chat_bridge"
     raw_message: Optional[str] = None
+    barcode: Optional[str] = None                   # set when a specific catalogue product was picked
+    image_url: Optional[str] = None
+    exact: bool = False
+    price: Optional[float] = None
+    store: Optional[str] = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
     consumed_at: Optional[datetime] = Field(default=None, index=True)
 
@@ -300,6 +305,11 @@ class InboxAdd(SQLModel):
     item_name: str
     added_by: str = "chat_bridge"
     raw_message: Optional[str] = None
+    barcode: Optional[str] = None
+    image_url: Optional[str] = None
+    exact: bool = False
+    price: Optional[float] = None
+    store: Optional[str] = None
 
 
 class InboxRead(SQLModel):
@@ -307,6 +317,11 @@ class InboxRead(SQLModel):
     item_name: str
     added_by: str
     raw_message: Optional[str] = None
+    barcode: Optional[str] = None
+    image_url: Optional[str] = None
+    exact: bool = False
+    price: Optional[float] = None
+    store: Optional[str] = None
     created_at: datetime
 
 

@@ -50,10 +50,21 @@ export default function CartScreen() {
           const inbox = await getListInbox();
           if (cancelled || !inbox.length) return;
           const known = new Set(current.map((it) => it.id));
-          const fresh = inbox.filter((row) => !known.has(row.item_name.toLowerCase().trim()));
+          const rowId = (row) => row.barcode || row.item_name.toLowerCase().trim();
+          const fresh = inbox.filter((row) => !known.has(rowId(row)));
           const next = [
             ...current,
-            ...fresh.map((row) => ({ id: row.item_name.toLowerCase().trim(), name: row.item_name, exact: false, qty: 1, price: null, done: false, source: "chat" })),
+            ...fresh.map((row) => ({
+              id: rowId(row),
+              name: row.item_name,
+              barcode: row.barcode || null,
+              image_url: row.image_url || null,
+              exact: !!(row.exact || row.barcode),
+              qty: 1,
+              price: row.price ?? null,
+              done: false,
+              source: "chat",
+            })),
           ];
           if (fresh.length) {
             setItems(next);

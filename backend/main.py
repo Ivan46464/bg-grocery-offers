@@ -373,7 +373,10 @@ def cart_optimize(req: CartRequest, session: Session = Depends(get_session)):
 
 # ---- list inbox (chat bridge) -----------------------------------------------
 def _inbox_read(row: ListInbox) -> InboxRead:
-    return InboxRead(id=row.id, item_name=row.item_name, added_by=row.added_by, raw_message=row.raw_message, created_at=row.created_at)
+    return InboxRead(
+        id=row.id, item_name=row.item_name, added_by=row.added_by, raw_message=row.raw_message,
+        barcode=row.barcode, image_url=row.image_url, exact=bool(row.exact), price=row.price, store=row.store, created_at=row.created_at,
+    )
 
 
 @app.post("/api/cart/add", response_model=InboxRead, tags=["cart"])
@@ -384,12 +387,15 @@ def cart_add(body: InboxAdd, x_api_key: Optional[str] = Header(default=None), se
     name = body.item_name.strip()
     if not name:
         raise HTTPException(400, "item_name is empty")
-    existing = session.exec(
-        select(ListInbox).where(func.lower(ListInbox.item_name) == name.lower(), ListInbox.consumed_at.is_(None))
-    ).first()
+    dup = select(ListInbox).where(ListInbox.consumed_at.is_(None))
+    dup = dup.where(ListInbox.barcode == body.barcode) if body.barcode else dup.where(func.lower(ListInbox.item_name) == name.lower())
+    existing = session.exec(dup).first()
     if existing:
         return _inbox_read(existing)
-    row = ListInbox(item_name=name[:200], added_by=(body.added_by or "chat_bridge")[:50], raw_message=(body.raw_message or "")[:1000] or None)
+    row = ListInbox(
+        item_name=name[:200], added_by=(body.added_by or "chat_bridge")[:50], raw_message=(body.raw_message or "")[:1000] or None,
+        barcode=body.barcode, image_url=body.image_url, exact=bool(body.exact or body.barcode), price=body.price, store=body.store,
+    )
     session.add(row)
     session.commit()
     session.refresh(row)

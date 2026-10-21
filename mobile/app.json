@@ -3,7 +3,7 @@
     "name": "BG Оферти",
     "slug": "bg-grocery-offers",
     "owner": "ivan464",
-    "version": "1.7.0",
+    "version": "1.7.1",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -21,7 +21,7 @@
     },
     "android": {
       "package": "com.ilko.bgoffers",
-      "versionCode": 8,
+      "versionCode": 9,
       "edgeToEdgeEnabled": true,
       "adaptiveIcon": {
         "backgroundColor": "#0B1220",
