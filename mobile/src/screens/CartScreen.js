@@ -7,7 +7,7 @@
 import React, { useCallback, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import { useFocusEffect } from "@react-navigation/native";
-import { optimizeCart } from "../api";
+import { ackListInbox, getListInbox, optimizeCart } from "../api";
 import OfferSheet from "../components/OfferSheet";
 import ProductPicker from "../components/ProductPicker";
 import ScreenHeader from "../components/ScreenHeader";
@@ -39,9 +39,36 @@ export default function CartScreen() {
 
   useFocusEffect(
     useCallback(() => {
-      loadCart().then(setItems);
+      let cancelled = false;
       loadTrips().then(setTrips);
-    }, [])
+      (async () => {
+        const current = await loadCart();
+        if (cancelled) return;
+        setItems(current);
+        // Items written in the LoveChat chat ("купи домати") wait in the server inbox - pull them in.
+        try {
+          const inbox = await getListInbox();
+          if (cancelled || !inbox.length) return;
+          const known = new Set(current.map((it) => it.id));
+          const fresh = inbox.filter((row) => !known.has(row.item_name.toLowerCase().trim()));
+          const next = [
+            ...current,
+            ...fresh.map((row) => ({ id: row.item_name.toLowerCase().trim(), name: row.item_name, exact: false, qty: 1, price: null, done: false, source: "chat" })),
+          ];
+          if (fresh.length) {
+            setItems(next);
+            await saveCart(next);
+            toast(fresh.length === 1 ? `От чата: ${fresh[0].item_name}` : `От чата: ${fresh.length} продукта`, "chatbubble-ellipses");
+          }
+          await ackListInbox(inbox.map((row) => row.id));
+        } catch {
+          /* offline or server waking up - try again next time the tab opens */
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [toast])
   );
 
   const setList = (next) => {

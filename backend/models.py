@@ -106,6 +106,23 @@ class Watch(SQLModel, table=True):
     last_notified_at: Optional[datetime] = None
 
 
+class ListInbox(SQLModel, table=True):
+    """
+    Shopping-list items sent from outside the app (e.g. the LoveChat chat bridge).
+    The mobile app pulls unconsumed rows on the Количка tab, merges them into the
+    on-device list and acknowledges them.
+    """
+
+    __tablename__ = "list_inbox"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    item_name: str = Field(index=True)
+    added_by: str = "chat_bridge"
+    raw_message: Optional[str] = None
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    consumed_at: Optional[datetime] = Field(default=None, index=True)
+
+
 # --------------------------------------------------------------------------- #
 # API shapes
 # --------------------------------------------------------------------------- #
@@ -276,3 +293,22 @@ class WatchRead(SQLModel):
     current_best: Optional[OfferRead] = None        # cheapest matching offer right now
     hit: bool = False                               # current_best meets the target
     last_notified_at: Optional[datetime]
+
+
+# ---- list inbox (chat bridge) -----------------------------------------------
+class InboxAdd(SQLModel):
+    item_name: str
+    added_by: str = "chat_bridge"
+    raw_message: Optional[str] = None
+
+
+class InboxRead(SQLModel):
+    id: int
+    item_name: str
+    added_by: str
+    raw_message: Optional[str] = None
+    created_at: datetime
+
+
+class InboxAck(SQLModel):
+    ids: list[int]

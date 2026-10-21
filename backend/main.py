@@ -16,6 +16,9 @@ Endpoints
   GET  /api/offers/{id}/history     -> 90-day price points for the trend line
   GET  /api/barcode/{ean}           -> offers for a scanned barcode (exact + by name)
   POST /api/cart/optimize           -> best single store / best split trip for a list
+  POST /api/cart/add                -> add an item to the list inbox (LoveChat chat bridge)
+  GET  /api/cart/inbox              -> unconsumed inbox items (the app merges them into its list)
+  POST /api/cart/inbox/ack          -> mark inbox items as merged
   POST /api/push/register           -> save an Expo push token
   GET/POST/DELETE /api/watch        -> price-drop watchlist
   POST /api/refresh?token=…         -> re-run all scrapers now (protected by REFRESH_TOKEN)
@@ -35,7 +38,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Query
+from fastapi import Depends, FastAPI, Header, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, func, select
 
@@ -50,6 +53,10 @@ from models import (
     CartResponse,
     CatalogItem,
     HistoryPoint,
+    InboxAck,
+    InboxAdd,
+    InboxRead,
+    ListInbox,
     Offer,
     OfferHistory,
     OfferRead,
@@ -74,6 +81,7 @@ log = logging.getLogger("api")
 
 SCRAPE_INTERVAL_HOURS = float(os.getenv("SCRAPE_INTERVAL_HOURS", "12"))
 REFRESH_TOKEN = os.getenv("REFRESH_TOKEN", "")          # empty = /api/refresh is open (fine for dev)
+BRIDGE_TOKEN = os.getenv("BRIDGE_TOKEN", "")            # optional: required as X-API-Key on POST /api/cart/add
 SCRAPE_ON_STARTUP = os.getenv("SCRAPE_ON_STARTUP", "auto")  # auto | always | never
 
 _scrape_lock = asyncio.Lock()
@@ -361,6 +369,58 @@ def cart_optimize(req: CartRequest, session: Session = Depends(get_session)):
     stores = [s for s in STORE_NAMES if not req.stores or s.lower() in {x.lower() for x in req.stores}]
     offers = session.exec(select(Offer).where(Offer.store.in_(stores))).all()
     return optimize(req.items, offers, stores)
+
+
+# ---- list inbox (chat bridge) -----------------------------------------------
+def _inbox_read(row: ListInbox) -> InboxRead:
+    return InboxRead(id=row.id, item_name=row.item_name, added_by=row.added_by, raw_message=row.raw_message, created_at=row.created_at)
+
+
+@app.post("/api/cart/add", response_model=InboxRead, tags=["cart"])
+def cart_add(body: InboxAdd, x_api_key: Optional[str] = Header(default=None), session: Session = Depends(get_session)):
+    """Called by LoveChat when someone writes "купи домати" in the chat. Lands in the list inbox."""
+    if BRIDGE_TOKEN and x_api_key != BRIDGE_TOKEN:
+        raise HTTPException(status_code=401, detail="Bad API key")
+    name = body.item_name.strip()
+    if not name:
+        raise HTTPException(400, "item_name is empty")
+    existing = session.exec(
+        select(ListInbox).where(func.lower(ListInbox.item_name) == name.lower(), ListInbox.consumed_at.is_(None))
+    ).first()
+    if existing:
+        return _inbox_read(existing)
+    row = ListInbox(item_name=name[:200], added_by=(body.added_by or "chat_bridge")[:50], raw_message=(body.raw_message or "")[:1000] or None)
+    session.add(row)
+    session.commit()
+    session.refresh(row)
+    log.info("inbox: +%r from %s", name, row.added_by)
+    return _inbox_read(row)
+
+
+@app.get("/api/cart/inbox", response_model=list[InboxRead], tags=["cart"])
+def cart_inbox(session: Session = Depends(get_session)):
+    rows = session.exec(select(ListInbox).where(ListInbox.consumed_at.is_(None)).order_by(ListInbox.created_at)).all()
+    return [_inbox_read(r) for r in rows]
+
+
+@app.post("/api/cart/inbox/ack", tags=["cart"])
+def cart_inbox_ack(body: InboxAck, session: Session = Depends(get_session)):
+    n = 0
+    for row in session.exec(select(ListInbox).where(ListInbox.id.in_(body.ids), ListInbox.consumed_at.is_(None))).all():
+        row.consumed_at = utcnow()
+        session.add(row)
+        n += 1
+    session.commit()
+    return {"ok": True, "acknowledged": n}
+
+
+@app.delete("/api/cart/inbox/{item_id}", tags=["cart"])
+def cart_inbox_delete(item_id: int, session: Session = Depends(get_session)):
+    row = session.get(ListInbox, item_id)
+    if row:
+        session.delete(row)
+        session.commit()
+    return {"ok": True}
 
 
 # ---- push / watchlist -------------------------------------------------------

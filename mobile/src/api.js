@@ -78,6 +78,9 @@ export const catalogSearch = (q, { limit = 20, signal } = {}) => request(`/api/c
 // ---- cart ----------------------------------------------------------------
 /** items: [{ name, barcode?, image_url?, exact? }] or plain strings */
 export const optimizeCart = (items, opts) => request("/api/cart/optimize", { method: "POST", body: { items }, ...opts });
+/** Items sent from outside the app (LoveChat chat bridge: "купи домати"). Merge them into the list, then ack. */
+export const getListInbox = (opts) => request("/api/cart/inbox", opts);
+export const ackListInbox = (ids) => request("/api/cart/inbox/ack", { method: "POST", body: { ids } });
 
 // ---- watchlist -----------------------------------------------------------
 export const registerPush = (token, platform = "android") =>
