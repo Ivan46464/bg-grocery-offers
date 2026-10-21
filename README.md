@@ -115,6 +115,8 @@ python scraper.py
 | GET | `/api/barcode/{ean}` | – | exact + similar offers for a scanned code |
 | GET | `/api/catalog/search` | `q`, `limit` | specific products to pick (offers + METRO catalogue), with image + EAN |
 | POST | `/api/cart/optimize` | `{"items": [{"name","barcode","exact":true}, "яйца"]}` | best single store + best split trip |
+| POST | `/api/cart/add` | `{"item_name","added_by","raw_message"}` (+ `X-API-Key` when `BRIDGE_TOKEN` is set) | list inbox: LoveChat sends items written in the chat ("купи домати") |
+| GET / POST | `/api/cart/inbox`, `/api/cart/inbox/ack` | – / `{"ids":[…]}` | the app merges unconsumed inbox items into its on-device list on the Количка tab, then acks |
 | POST | `/api/push/register` | `{"token": "ExponentPushToken[..]"}` | save a push token |
 | GET/POST/DELETE | `/api/watch` | `token`, `{"token","query","target_price"}` | watchlist |
 | GET | `/api/stores` | – | per-store count, `is_mock`, `last_scraped` |
@@ -198,10 +200,12 @@ If you ever want persistence, add a Render Postgres (free 30 days, then $7) and 
 
 ### 2.4 Keep it awake (already set up)
 
-[.github/workflows/keepalive.yml](.github/workflows/keepalive.yml) runs on GitHub's free cron and hits
-`/health` every 10 minutes, so the instance never spins down and the app opens instantly. While awake
-the API re-scrapes every 12 h by itself. Check it under the repo's **Actions** tab; GitHub pauses
-scheduled workflows after 60 days without commits — a push or a manual "Run workflow" resumes it.
+A **cron-job.org** job (account: the app owner's) requests `https://bg-grocery-offers-api.onrender.com/health`
+**every 5 minutes**, so the free instance never spins down and the app opens instantly. While awake the API
+re-scrapes every 12 h by itself. Manage it at https://console.cron-job.org/jobs.
+
+[.github/workflows/keepalive.yml](.github/workflows/keepalive.yml) does the same from GitHub Actions as a
+backup, but GitHub throttles frequent schedules heavily (it ran ~6 times in 19 h), so don't rely on it alone.
 
 If you ever need a manual re-scrape: `curl -X POST "https://<your-url>/api/refresh?token=<REFRESH_TOKEN>"`
 (`REFRESH_TOKEN` is in Render → your service → **Environment**).
