@@ -40,8 +40,8 @@ def record_history(session: Session, offers: list[Offer]) -> int:
             .order_by(PriceHistory.seen_at.desc())
             .limit(1)
         ).first()
-        if last and last.price == o.discounted_price and last.seen_at.date() == today:
-            continue
+        if last and last.price == o.discounted_price:
+            continue                      # only record price CHANGES (keeps 10k catalogue rows from piling up daily)
         session.add(
             PriceHistory(
                 store=o.store,

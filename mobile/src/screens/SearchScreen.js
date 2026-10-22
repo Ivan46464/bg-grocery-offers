@@ -1,4 +1,4 @@
-/**
+﻿/**
  * Search tab: search bar, quick-filter chips (tags), store chips, sort toggle,
  * results list. Handles the cold start of the free backend gracefully.
  */
@@ -12,8 +12,10 @@ import OfferCard from "../components/OfferCard";
 import OfferSheet from "../components/OfferSheet";
 import ScreenHeader from "../components/ScreenHeader";
 import SearchBar from "../components/SearchBar";
+import Segmented from "../components/Segmented";
 import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
+import FoodScreen from "./FoodScreen";
 import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
 import { addOfferToCart, cartItemId, getDeviceToken, loadCart, loadPushToken, onCartChange } from "../storage";
@@ -25,9 +27,11 @@ export default function SearchScreen({ navigation }) {
   const { ready, status, seconds, error: coldError, retry } = useColdStart();
   const toast = useToast();
 
+  const [mode, setMode] = useState("markets"); // markets | food
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState(null);
   const [store, setStore] = useState(null);
+  const [promo, setPromo] = useState("promo"); // promo | all
   const [sort, setSort] = useState("price"); // price | discount
   const [tags, setTags] = useState([]);
   const [offers, setOffers] = useState([]);
@@ -43,7 +47,7 @@ export default function SearchScreen({ navigation }) {
     return onCartChange((items) => setCartIds(new Set(items.map((i) => i.id))));
   }, []);
 
-  const load = useCallback(async (q, s, t, srt) => {
+  const load = useCallback(async (q, s, t, srt, pr) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -52,8 +56,8 @@ export default function SearchScreen({ navigation }) {
     try {
       const trimmed = q.trim();
       const data = trimmed
-        ? await searchOffers(trimmed, { store: s, tag: t, sort: srt, signal: controller.signal })
-        : await listOffers({ store: s, tag: t, sort: srt, signal: controller.signal });
+        ? await searchOffers(trimmed, { store: s, tag: t, sort: srt, promo: pr, signal: controller.signal })
+        : await listOffers({ store: s, tag: t, sort: srt, promo: pr, signal: controller.signal });
       if (!controller.signal.aborted) setOffers(data);
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -72,10 +76,10 @@ export default function SearchScreen({ navigation }) {
 
   // Debounced loading on every input change.
   useEffect(() => {
-    if (!ready) return;
-    const t = setTimeout(() => load(query, store, tag, sort), query ? SEARCH_DEBOUNCE_MS : 0);
+    if (!ready || mode !== "markets") return;
+    const t = setTimeout(() => load(query, store, tag, sort, promo), query ? SEARCH_DEBOUNCE_MS : 0);
     return () => clearTimeout(t);
-  }, [ready, query, store, tag, sort, load]);
+  }, [ready, mode, query, store, tag, sort, promo, load]);
 
   // Both actions store the SPECIFIC product (name + barcode + picture), not a loose word.
   const asProduct = (offer) => ({ name: offer.product_name, barcode: offer.barcode || null, image_url: offer.image_url || null, exact: true });
@@ -113,12 +117,12 @@ export default function SearchScreen({ navigation }) {
   } else if (loading && offers.length === 0) {
     content = <EmptyState loading title="Търсим най-добрите оферти…" />;
   } else if (error) {
-    content = <EmptyState icon="warning-outline" title="Грешка при зареждане" subtitle={error} actionLabel="Опитай пак" onAction={() => load(query, store, tag, sort)} />;
+    content = <EmptyState icon="warning-outline" title="Грешка при зареждане" subtitle={error} actionLabel="Опитай пак" onAction={() => load(query, store, tag, sort, promo)} />;
   } else if (offers.length === 0) {
     content = isSearching ? (
       <EmptyState title={`Нищо за „${query.trim()}“`} subtitle="Опитай с друга дума - „сирене“, „кафе“, на латиница „sirene“ или на английски „cheese“." />
     ) : (
-      <EmptyState icon="cart-outline" title="Няма оферти за този филтър" subtitle="Смени категорията или магазина." />
+      <EmptyState icon="cart-outline" title={promo === "all" ? "Няма продукти за този филтър" : "Няма промоции за този филтър"} subtitle={promo === "all" ? "Редовни цени публикуват само Metro и Lidl." : "Смени категорията или магазина, или виж „Всички продукти“."} />
     );
   } else {
     content = (
@@ -145,7 +149,7 @@ export default function SearchScreen({ navigation }) {
             )}
             <View style={styles.listHeader}>
               <Text style={styles.resultsLabel}>
-                {isSearching ? `${offers.length} оферти за „${query.trim()}“` : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините тази седмица" : "Най-големите отстъпки"}
+                {isSearching ? `${offers.length} ${promo === "all" ? "продукта" : "оферти"} за „${query.trim()}“` : promo === "all" ? "Всички продукти · най-евтино първо" : tag ? `${offers.length} оферти` : sort === "price" ? "Най-евтините промоции тази седмица" : "Най-големите отстъпки"}
               </Text>
               <Pressable onPress={() => setSort(sort === "price" ? "discount" : "price")} style={styles.sortBtn} hitSlop={8}>
                 <Ionicons name="swap-vertical" size={14} color={colors.primary} />
@@ -155,45 +159,88 @@ export default function SearchScreen({ navigation }) {
           </View>
         }
         refreshing={loading}
-        onRefresh={() => load(query, store, tag, sort)}
+        onRefresh={() => load(query, store, tag, sort, promo)}
       />
     );
   }
+
+  const regularTotal = status?.stores?.reduce((s, x) => s + (x.regular || 0), 0) ?? 0;
+  const subtitle =
+    mode === "food"
+      ? "Варна · Wolt / Glovo / Bolt Food - къде е по-евтино"
+      : status
+      ? `${status.total_offers} промоции · ${regularTotal} продукта на редовна цена · ${liveStores}/4 магазина`
+      : "Lidl · Kaufland · Billa · Metro";
 
   return (
     <View style={styles.screen}>
       <ScreenHeader
         title="BG Оферти"
-        subtitle={status ? `${status.total_offers} промоции тази седмица · ${liveStores}/4 магазина` : "Lidl · Kaufland · Billa · Metro"}
+        subtitle={subtitle}
         right={
           <Pressable onPress={() => navigation.navigate("Scanner")} style={styles.scanBtn} hitSlop={8}>
             <Ionicons name="barcode-outline" size={22} color={colors.headerInk} />
           </Pressable>
         }
       >
-        <SearchBar value={query} onChangeText={setQuery} onSubmit={Keyboard.dismiss} />
+        <Segmented
+          options={[
+            { key: "markets", label: "Магазини", icon: "cart" },
+            { key: "food", label: "Ресторанти", icon: "restaurant" },
+          ]}
+          value={mode}
+          onChange={(m) => {
+            setMode(m);
+            setQuery("");
+          }}
+          style={{ marginBottom: 10 }}
+        />
+        <SearchBar value={query} onChangeText={setQuery} onSubmit={Keyboard.dismiss} placeholder={mode === "food" ? "Търси ястие или ресторант… пица, бургер" : undefined} />
       </ScreenHeader>
 
-      {ready && (
-        <View style={styles.toolbar}>
-          {/* store buttons with full names + "Всички" */}
-          <View style={styles.storeRow}>
-            {[{ key: null, label: "Всички", bg: colors.ink, fg: "#fff" }, ...STORE_ORDER.map((s) => ({ key: s, label: s, bg: STORES[s].bg, fg: STORES[s].fg }))].map((b) => {
-              const active = store === b.key;
-              return (
-                <Pressable key={String(b.key)} onPress={() => setStore(b.key)} style={[styles.storeBtn, active && { backgroundColor: b.bg, borderColor: b.bg }]}>
-                  <Text style={[styles.storeBtnText, active && { color: b.fg }]} numberOfLines={1}>
-                    {b.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-          <Chips items={tagItems} value={tag} onChange={setTag} style={{ paddingVertical: 8 }} />
+      {mode === "food" ? (
+        <View style={styles.content}>
+          <FoodScreen query={query} />
         </View>
-      )}
+      ) : (
+        <>
+          {ready && (
+            <View style={styles.toolbar}>
+              {/* store buttons with full names + "Всички" */}
+              <View style={styles.storeRow}>
+                {[{ key: null, label: "Всички", bg: colors.ink, fg: "#fff" }, ...STORE_ORDER.map((s) => ({ key: s, label: s, bg: STORES[s].bg, fg: STORES[s].fg }))].map((b) => {
+                  const active = store === b.key;
+                  return (
+                    <Pressable key={String(b.key)} onPress={() => setStore(b.key)} style={[styles.storeBtn, active && { backgroundColor: b.bg, borderColor: b.bg }]}>
+                      <Text style={[styles.storeBtnText, active && { color: b.fg }]} numberOfLines={1}>
+                        {b.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {/* promotions vs the whole catalogue (Metro + Lidl publish regular prices) */}
+              <View style={styles.promoRow}>
+                {[
+                  { key: "promo", label: "Само промоции", icon: "pricetag" },
+                  { key: "all", label: "Всички продукти", icon: "list" },
+                ].map((b) => {
+                  const active = promo === b.key;
+                  return (
+                    <Pressable key={b.key} onPress={() => setPromo(b.key)} style={[styles.promoBtn, active && styles.promoBtnActive]}>
+                      <Ionicons name={b.icon} size={13} color={active ? "#fff" : colors.ink2} />
+                      <Text style={[styles.promoText, active && { color: "#fff" }]}>{b.label}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+              <Chips items={tagItems} value={tag} onChange={setTag} style={{ paddingVertical: 8 }} />
+            </View>
+          )}
 
-      <View style={styles.content}>{content}</View>
+          <View style={styles.content}>{content}</View>
+        </>
+      )}
 
       <OfferSheet offer={selected} onClose={() => setSelected(null)} onAddToCart={addToCart} onWatch={watchOffer} />
     </View>
@@ -206,7 +253,10 @@ const styles = StyleSheet.create({
   storeRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16 },
   storeBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: "center" },
   storeBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
-  row2: { flexDirection: "row", alignItems: "center", paddingRight: 16 },
+  promoRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16, paddingTop: 8 },
+  promoBtn: { flexDirection: "row", alignItems: "center", gap: 5, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  promoBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  promoText: { fontSize: 12, fontWeight: "700", color: colors.ink2 },
   content: { flex: 1 },
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
   listHeader: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 },

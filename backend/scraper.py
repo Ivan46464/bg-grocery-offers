@@ -68,6 +68,7 @@ class ScrapedOffer:
     card_name: Optional[str] = None
     card_only: bool = False             # the promo exists only with the card
     promo_label: Optional[str] = None   # "1+1 безплатно", "-60% на всеки втори", ...
+    is_promo: bool = True               # False = regular shelf price from a full catalogue (Metro, Lidl)
 
 
 _PLAIN_DISCOUNT_RE = re.compile(
@@ -286,6 +287,9 @@ class LidlScraper(BaseScraper):
                     card_name="Lidl Plus" if plus_price else None,
                     card_only=bool(plus_price) and not new_price,
                     promo_label=promo_label_from(discount.get("discountText")),
+                    # Lidl's listing mixes real promotions with plain weekly assortment:
+                    # promo = an old price, a Lidl Plus price or a discount text ("Акция", "-20%")
+                    is_promo=bool(old_price or plus_price or discount.get("discountText") or discount.get("showDiscount")),
                 )
         return list(offers.values())
 
@@ -768,9 +772,10 @@ class MetroScraper(BaseScraper):
     STORE_ID = "00010"
     COUNTRY, LOCALE = "BG", "bg-BG"
     PROMO_FILTER = "storeHasPromotion:MCRM"
+    FULL_CATALOG = True   # True = every article METRO sells (~10.7k, ~4 min), promo ones flagged; False = promos only
     ROWS = 100            # ids per search page
     BATCH = 40            # ids per betty-variants request (keeps the URL short)
-    MAX_PAGES = 20
+    MAX_PAGES = 150
     KEYS = {
         "items": "resultIds",
         "total_pages": "totalPages",
@@ -789,35 +794,63 @@ class MetroScraper(BaseScraper):
     }
     # ----------------------------------------------------------------------
 
+    SEARCH_CAP = 2900     # the search endpoint refuses page 31 (3000 ids) -> split by category below that
+
     def _scrape(self) -> list[ScrapedOffer]:
-        ids = self._promo_ids()
+        ids = self._article_ids()
+        log.info("Metro: %d article ids (%s)", len(ids), "full catalogue" if self.FULL_CATALOG else "promo only")
         offers: list[ScrapedOffer] = []
+        seen_urls: set[str] = set()
         for i in range(0, len(ids), self.BATCH):
             try:
                 data = self._get(self._variants_url(ids[i:i + self.BATCH])).json()
             except (httpx.HTTPError, ValueError) as exc:
                 log.warning("Metro: variants batch %d skipped (%s)", i // self.BATCH, exc)
                 continue
-            offers.extend(self._parse_variants(data))
+            for o in self._parse_variants(data):
+                key = o.product_url or f"{o.product_name}|{o.discounted_price}"
+                if key not in seen_urls:
+                    seen_urls.add(key)
+                    offers.append(o)
         return offers
 
-    def _promo_ids(self) -> list[str]:
+    def _article_ids(self) -> list[str]:
+        if not self.FULL_CATALOG:
+            return self._ids(self.PROMO_FILTER)
+        # Walk the category tree; query every category small enough for the 3000-id cap.
+        tree = self._get(self._search_url(1, rows=1, facets=True)).json().get("categorytree") or {}
+        ids: list[str] = []
+        stack = list((tree.get("children") or {}).values())
+        while stack:
+            node = stack.pop()
+            amount = int(node.get("amounts") or 0)
+            children = list((node.get("children") or {}).values())
+            if amount > self.SEARCH_CAP and children:
+                stack.extend(children)
+                continue
+            if amount:
+                ids.extend(self._ids(f"category:{node['categoryId']}"))
+        return list(dict.fromkeys(ids))
+
+    def _ids(self, flt: Optional[str]) -> list[str]:
         k = self.KEYS
         ids: list[str] = []
         page, total_pages = 1, 1
         while page <= total_pages and page <= self.MAX_PAGES:
-            data = self._get(self._search_url(page)).json()
+            data = self._get(self._search_url(page, flt=flt)).json()
             ids.extend(data.get(k["items"]) or [])
             total_pages = int(data.get(k["total_pages"]) or 1)
             page += 1
-        return list(dict.fromkeys(ids))
+        return ids
 
-    def _search_url(self, page: int) -> str:
+    def _search_url(self, page: int, flt: Optional[str] = None, rows: Optional[int] = None, facets: bool = False) -> str:
         params = {
             "storeId": self.STORE_ID, "language": self.LOCALE, "country": self.COUNTRY,
-            "query": "*", "rows": self.ROWS, "page": page, "filter": self.PROMO_FILTER,
-            "facets": "false", "categories": "false",
+            "query": "*", "rows": rows or self.ROWS, "page": page,
+            "facets": "true" if facets else "false", "categories": "true" if facets else "false",
         }
+        if flt:
+            params["filter"] = flt
         return str(httpx.URL(self.API_URL, params=params))
 
     def _variants_url(self, ids: list[str]) -> str:
@@ -837,8 +870,9 @@ class MetroScraper(BaseScraper):
                     price = price_obj.get(k["price"])
                     old_price = price_obj.get(k["old_price"])
                     promo = price_obj.get(k["promo"]) or {}
-                    if not price or not (old_price or promo.get("name")):
-                        continue    # under the promo facet but no promo price applied (e.g. voucher only)
+                    is_promo = bool(old_price or promo.get("name"))
+                    if not price or (not self.FULL_CATALOG and not is_promo):
+                        continue    # promo mode: under the promo facet but no promo price applied (e.g. voucher only)
                     bid = bundle.get(k["bundle_id"]) or {}
                     gtins = [g.get("number", "") for g in (bundle.get(k["gtins"]) or [])]
                     ean = next((g for g in gtins if g.isdigit() and len(g) in (8, 12, 13, 14)), None)
@@ -857,6 +891,7 @@ class MetroScraper(BaseScraper):
                             valid_from=_iso_date(promo.get("startTime")),
                             valid_to=_iso_date(promo.get("endTime")),
                             barcode=ean,
+                            is_promo=is_promo,
                         )
                     )
         return offers

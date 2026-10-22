@@ -95,6 +95,7 @@ export default function OfferCard({ offer, isBest = false, onPress, onAdd, inCar
           ) : null}
           <LowBadge offer={offer} compact />
           <PromoBadges offer={offer} compact />
+          {offer.is_promo === false && <Text style={styles.regular}>редовна цена</Text>}
           {offer.is_mock && <Text style={styles.mock}>демо</Text>}
         </View>
       </View>
@@ -147,6 +148,7 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap" },
   meta: { fontSize: 12, color: colors.ink3 },
   mock: { fontSize: 11, color: "#B45309", backgroundColor: colors.accentSoft, paddingHorizontal: 6, borderRadius: 4 },
+  regular: { fontSize: 10, color: colors.ink2, backgroundColor: colors.surfaceAlt, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, fontWeight: "700" },
 
   badge: { flexDirection: "row", alignItems: "center", gap: 3, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
   badgeText: { fontSize: 10, fontWeight: "800", letterSpacing: 0.3 },

@@ -19,7 +19,7 @@ export default function ServerWaking({ status, seconds }) {
       <Text style={styles.sub}>
         {!status
           ? `Безплатният сървър заспива при неактивност - първото отваряне отнема до минута (${seconds}s).`
-          : "Всяка седмица събираме промоциите наново - отнема около 30 секунди."}
+          : "Събираме промоциите и пълния каталог на Metro - отнема няколко минути след рестарт на сървъра."}
       </Text>
       <View style={styles.grid}>
         {STORE_ORDER.map((name) => {

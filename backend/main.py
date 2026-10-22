@@ -52,7 +52,15 @@ from models import (
     CartRequest,
     CartResponse,
     CatalogItem,
+    Dish,
+    DishCompare,
+    DishRead,
+    FoodStatus,
     HistoryPoint,
+    Restaurant,
+    RestaurantDetail,
+    RestaurantGroup,
+    RestaurantRead,
     InboxAck,
     InboxAdd,
     InboxRead,
@@ -72,6 +80,8 @@ from models import (
     utcnow,
 )
 from push import best_match, check_watches, meets_target
+from rapidfuzz import fuzz
+from restaurants import run_all_restaurant_scrapers, same_dish
 from scraper import STORE_NAMES, offers_count, run_all_scrapers
 from search import search_offers
 from tags import TAGS
@@ -85,7 +95,33 @@ BRIDGE_TOKEN = os.getenv("BRIDGE_TOKEN", "")            # optional: required as 
 SCRAPE_ON_STARTUP = os.getenv("SCRAPE_ON_STARTUP", "auto")  # auto | always | never
 
 _scrape_lock = asyncio.Lock()
-_state = {"scraping": False, "last_finished": None}
+_food_lock = asyncio.Lock()
+_state = {"scraping": False, "last_finished": None, "food_scraping": False}
+FOOD_INTERVAL_HOURS = float(os.getenv("FOOD_INTERVAL_HOURS", "24"))
+
+
+def _food_scrape_sync() -> dict:
+    with Session(engine) as session:
+        return run_all_restaurant_scrapers(session)
+
+
+async def food_scrape_now() -> dict:
+    async with _food_lock:
+        _state["food_scraping"] = True
+        try:
+            return await asyncio.to_thread(_food_scrape_sync)
+        finally:
+            _state["food_scraping"] = False
+
+
+async def _periodic_food_scraper(initial_delay: float) -> None:
+    await asyncio.sleep(initial_delay)
+    while True:
+        try:
+            log.info("Restaurant scrape: %s", await food_scrape_now())
+        except Exception:  # noqa: BLE001
+            log.exception("Restaurant scrape failed")
+        await asyncio.sleep(FOOD_INTERVAL_HOURS * 3600)
 
 
 # --------------------------------------------------------------------------- #
@@ -135,8 +171,13 @@ async def lifespan(app: FastAPI):
         _state["scraping"] = True                # so /api/status says "loading" even before the task starts
         asyncio.create_task(scrape_now())        # don't block startup
     periodic = asyncio.create_task(_periodic_scraper())
+    with Session(engine) as session:
+        food_empty = session.exec(select(Restaurant.id).limit(1)).first() is None
+    # restaurants: right away when empty (after the offers get a head start), then daily
+    food_task = asyncio.create_task(_periodic_food_scraper(90 if food_empty else FOOD_INTERVAL_HOURS * 3600))
     yield
     periodic.cancel()
+    food_task.cancel()
 
 
 # --------------------------------------------------------------------------- #
@@ -158,23 +199,30 @@ app.add_middleware(
 )
 
 
-def _offers_query(store: Optional[str], tag: Optional[str]):
+def _offers_query(store: Optional[str], tag: Optional[str], promo: str = "all"):
+    """promo = 'promo' (promotions only) | 'regular' (shelf prices only) | 'all'."""
     stmt = select(Offer)
     if store:
         stmt = stmt.where(func.lower(Offer.store) == store.lower())
     if tag:
         stmt = stmt.where(Offer.tags.contains(tag.lower()))
+    if promo == "promo":
+        stmt = stmt.where(Offer.is_promo == True)  # noqa: E712
+    elif promo == "regular":
+        stmt = stmt.where(Offer.is_promo == False)  # noqa: E712
     return stmt
 
 
 def _store_statuses(session: Session) -> list[StoreStatus]:
     out: list[StoreStatus] = []
     for name in STORE_NAMES:
-        rows = session.exec(select(Offer.is_mock, Offer.scraped_at).where(Offer.store == name)).all()
+        rows = session.exec(select(Offer.is_mock, Offer.scraped_at, Offer.is_promo).where(Offer.store == name)).all()
+        promo_rows = [r for r in rows if r[2]]
         out.append(
             StoreStatus(
                 store=name,
-                offers=len(rows),
+                offers=len(promo_rows),
+                regular=len(rows) - len(promo_rows),
                 is_mock=bool(rows) and all(r[0] for r in rows),
                 last_scraped=max((r[1] for r in rows), default=None),
             )
@@ -217,8 +265,8 @@ def stores(session: Session = Depends(get_session)):
 
 
 @app.get("/api/tags", response_model=list[TagInfo], tags=["offers"])
-def list_tags(store: Optional[str] = None, session: Session = Depends(get_session)):
-    rows = session.exec(_offers_query(store, None).with_only_columns(Offer.tags)).all()
+def list_tags(store: Optional[str] = None, promo: str = Query("all", pattern="^(promo|regular|all)$"), session: Session = Depends(get_session)):
+    rows = session.exec(_offers_query(store, None, promo).with_only_columns(Offer.tags)).all()
     counts: dict[str, int] = {}
     for tags in rows:
         for t in (tags or "").split(","):
@@ -233,12 +281,13 @@ def search(
     q: str = Query(..., min_length=1, max_length=80, description="Product to look for, e.g. 'сирене' or 'cheese'"),
     store: Optional[str] = Query(None, description="Limit to one store: Lidl | Kaufland | Billa | Metro"),
     tag: Optional[str] = Query(None, description="Limit to a quick-filter tag, e.g. 'млечни'"),
+    promo: str = Query("all", pattern="^(promo|regular|all)$", description="promotions only, regular shelf prices only, or everything"),
     sort: str = Query("price", pattern="^(price|score|discount)$"),
     limit: int = Query(50, ge=1, le=200),
     session: Session = Depends(get_session),
 ):
     """Fuzzy search across all stores. Default order: cheapest first."""
-    offers = session.exec(_offers_query(store, tag)).all()
+    offers = session.exec(_offers_query(store, tag, promo)).all()
     hits = search_offers(offers, q, sort=sort)
     return [OfferRead.from_offer(o, s) for o, s in hits[:limit]]
 
@@ -247,13 +296,14 @@ def search(
 def list_offers(
     store: Optional[str] = None,
     tag: Optional[str] = None,
+    promo: str = Query("promo", pattern="^(promo|regular|all)$"),
     sort: str = Query("price", pattern="^(price|discount|newest)$"),
     limit: int = Query(100, ge=1, le=1000),
     offset: int = Query(0, ge=0),
     session: Session = Depends(get_session),
 ):
-    """Browse offers without a search term."""
-    stmt = _offers_query(store, tag)
+    """Browse offers without a search term (promotions by default; promo=all for the full catalogue)."""
+    stmt = _offers_query(store, tag, promo)
     if sort == "discount":
         stmt = stmt.order_by(Offer.discount_percent.desc().nullslast(), Offer.effective_price)
     elif sort == "newest":
@@ -493,11 +543,129 @@ def delete_watch(watch_id: int, token: str, session: Session = Depends(get_sessi
     return {"ok": True}
 
 
+# ---- restaurants (Varna delivery comparison) --------------------------------
+def _dish_read(d: Dish, r: Restaurant, score: Optional[int] = None) -> DishRead:
+    return DishRead(
+        id=d.id, platform=d.platform, name=d.name, description=d.description, category=d.category, price=d.price,
+        original_price=d.original_price, image_url=d.image_url, restaurant_id=r.id, restaurant_name=r.name,
+        restaurant_url=r.url, delivery_minutes=r.delivery_minutes, delivery_fee=r.delivery_fee, score=score,
+    )
+
+
+def _groups(rows: list[Restaurant], counts: dict[int, int]) -> list[RestaurantGroup]:
+    by_key: dict[str, list[Restaurant]] = {}
+    for r in rows:
+        by_key.setdefault(r.group_key, []).append(r)
+    out = []
+    for key, listings in by_key.items():
+        listings.sort(key=lambda r: r.platform)
+        with_fee = [r for r in listings if r.delivery_fee is not None]
+        cheapest = min(with_fee, key=lambda r: r.delivery_fee).platform if with_fee else None
+        out.append(
+            RestaurantGroup(
+                group_key=key, name=listings[0].name, image_url=next((r.image_url for r in listings if r.image_url), None),
+                tags=[t for t in (listings[0].tags or "").split(",") if t],
+                listings=[RestaurantRead.from_row(r, counts.get(r.id, 0)) for r in listings],
+                cheapest_delivery_platform=cheapest,
+            )
+        )
+    return out
+
+
+@app.get("/api/food/status", response_model=FoodStatus, tags=["food"])
+def food_status(session: Session = Depends(get_session)):
+    rows = session.exec(select(Restaurant.platform, Restaurant.scraped_at)).all()
+    platforms: dict[str, int] = {}
+    for p, _ in rows:
+        platforms[p] = platforms.get(p, 0) + 1
+    dishes = session.exec(select(func.count(Dish.id))).one()
+    return FoodStatus(city="Varna", platforms=platforms, dishes=int(dishes or 0), last_scraped=max((s for _, s in rows), default=None), scraping=_state["food_scraping"])
+
+
+@app.get("/api/food/restaurants", response_model=list[RestaurantGroup], tags=["food"])
+def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, limit: int = Query(60, ge=1, le=300), session: Session = Depends(get_session)):
+    """Restaurants in Varna grouped across platforms; optional name/tag filter."""
+    rows = session.exec(select(Restaurant)).all()
+    if q:
+        ql = q.lower()
+        rows = [r for r in rows if ql in r.name.lower() or fuzz.partial_ratio(ql, r.name.lower()) >= 85 or ql in (r.tags or "")]
+    if tag:
+        rows = [r for r in rows if tag.lower() in (r.tags or "").lower()]
+    counts = {rid: n for rid, n in session.exec(select(Dish.restaurant_id, func.count(Dish.id)).group_by(Dish.restaurant_id)).all()}
+    groups = _groups(rows, counts)
+    groups.sort(key=lambda g: (-(max((l.rating or 0) for l in g.listings)), g.name))
+    return groups[:limit]
+
+
+@app.get("/api/food/restaurants/{group_key}", response_model=RestaurantDetail, tags=["food"])
+def food_restaurant(group_key: str, session: Session = Depends(get_session)):
+    """One restaurant with every dish and, per dish, the price on each platform."""
+    rows = session.exec(select(Restaurant).where(Restaurant.group_key == group_key)).all()
+    if not rows:
+        raise HTTPException(404, "Restaurant not found")
+    by_id = {r.id: r for r in rows}
+    dishes = session.exec(select(Dish).where(Dish.restaurant_id.in_(list(by_id)))).all()
+    counts: dict[int, int] = {}
+    for d in dishes:
+        counts[d.restaurant_id] = counts.get(d.restaurant_id, 0) + 1
+    group = _groups(rows, counts)[0]
+    # merge the same dish across platforms
+    merged: list[list[Dish]] = []
+    for d in sorted(dishes, key=lambda x: (x.category or "", x.name)):
+        for bucket in merged:
+            if same_dish(bucket[0].name, d.name):
+                bucket.append(d)
+                break
+        else:
+            merged.append([d])
+    compares = []
+    for bucket in merged:
+        reads = sorted((_dish_read(d, by_id[d.restaurant_id]) for d in bucket), key=lambda x: x.price)
+        # several branches of a chain on the same platform -> keep the cheapest per platform
+        per_platform: dict[str, DishRead] = {}
+        for r in reads:
+            per_platform.setdefault(r.platform, r)
+        reads = list(per_platform.values())
+        compares.append(DishCompare(name=bucket[0].name, offers=reads, cheapest_platform=reads[0].platform, savings=round(reads[-1].price - reads[0].price, 2)))
+    cats = sorted({d.category for d in dishes if d.category})
+    return RestaurantDetail(group=group, categories=cats, dishes=compares)
+
+
+@app.get("/api/food/search", response_model=list[DishRead], tags=["food"])
+def food_search(q: str = Query(..., min_length=2, max_length=60), limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
+    """Dishes across all Varna restaurants and platforms, cheapest first ('пица маргарита', 'бургер')."""
+    rows = session.exec(select(Dish)).all()
+    rests = {r.id: r for r in session.exec(select(Restaurant)).all()}
+    ql = q.lower().strip()
+    extras = ("сос", "соус", "добавка", "допълнител", "екстра", "топинг", "кетчуп", "майонеза", "салфетк", "прибори")
+    asked_extra = any(w in ql for w in extras)
+    best: dict[tuple, tuple[int, Dish]] = {}
+    for d in rows:
+        r = rests.get(d.restaurant_id)
+        if not r:
+            continue
+        nl = d.name.lower()
+        s = 100 if ql in nl else int(max(fuzz.partial_ratio(ql, nl), fuzz.token_set_ratio(ql, nl)))
+        if s < 80:
+            continue
+        if not asked_extra and any(w in nl for w in extras):
+            s -= 25                                     # "Бургер сос" is not a burger
+        if s < 70:
+            continue
+        # one row per (restaurant chain, platform, dish): branches of a chain repeat the same menu
+        key = (r.group_key, d.platform, d.name_key)
+        cur = best.get(key)
+        if cur is None or d.price < cur[1].price:
+            best[key] = (s, d)
+    hits = sorted(best.values(), key=lambda t: (-(t[0] >= 95), t[1].price, -t[0]))   # exact matches first, then cheapest
+    return [_dish_read(d, rests[d.restaurant_id], s) for s, d in hits[:limit]]
+
+
 # ---- admin ------------------------------------------------------------------
 @app.post("/api/refresh", tags=["admin"])
-async def refresh(token: str = Query("", description="Must equal the REFRESH_TOKEN env var")):
-    """Re-scrape every store right now. Call this from a daily cron."""
+async def refresh(token: str = Query("", description="Must equal the REFRESH_TOKEN env var"), what: str = Query("stores", pattern="^(stores|food)$")):
+    """Re-scrape every store (or the restaurants) right now."""
     if REFRESH_TOKEN and token != REFRESH_TOKEN:
         raise HTTPException(status_code=401, detail="Bad token")
-    summary = await scrape_now()
-    return {"ok": True, "stores": summary}
+    summary = await (food_scrape_now() if what == "food" else scrape_now())
+    return {"ok": True, what: summary}

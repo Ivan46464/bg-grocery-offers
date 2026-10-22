@@ -4,7 +4,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { colors, radius, shadow } from "../theme";
 
 /** Prominent search input with a clear (×) button. Fully controlled. */
-export default function SearchBar({ value, onChangeText, onSubmit, placeholder = "Търси продукт… сирене, cheese, кафе", autoFocus = false }) {
+export default function SearchBar({ value, onChangeText, onSubmit, placeholder, autoFocus = false }) {
+  placeholder = placeholder || "Търси продукт… сирене, cheese, кафе";
   return (
     <View style={styles.wrap}>
       <Ionicons name="search" size={20} color={colors.ink3} style={{ marginRight: 8 }} />

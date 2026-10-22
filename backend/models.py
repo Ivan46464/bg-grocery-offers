@@ -48,6 +48,7 @@ class Offer(SQLModel, table=True):
     card_only: bool = False                     # promo exists ONLY with the card
     promo_label: Optional[str] = None           # "1+1 безплатно", "-60% на всеки втори", "2+1" ...
     effective_price: float = 0.0                # min(discounted_price, card_price) - what we sort by
+    is_promo: bool = Field(default=True, index=True)  # False = regular shelf price (full catalogue: Metro, Lidl)
 
     image_url: Optional[str] = None
     product_url: Optional[str] = None           # link back to the store page
@@ -128,6 +129,47 @@ class ListInbox(SQLModel, table=True):
     consumed_at: Optional[datetime] = Field(default=None, index=True)
 
 
+class Restaurant(SQLModel, table=True):
+    """A restaurant as listed on one delivery platform (Wolt / Glovo / Bolt Food) in Varna."""
+
+    __tablename__ = "restaurants"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    platform: str = Field(index=True)               # "Wolt" | "Glovo" | "Bolt"
+    external_id: str = Field(index=True)            # platform's slug / id
+    name: str = Field(index=True)
+    group_key: str = Field(default="", index=True)  # normalised name shared by the same restaurant on other platforms
+    url: str                                        # deep link to order
+    image_url: Optional[str] = None
+    address: Optional[str] = None
+    tags: str = ""                                  # "burger,pizza"
+    rating: Optional[float] = None                  # platform score (Wolt 0-10)
+    rating_count: Optional[int] = None
+    delivery_minutes: Optional[int] = None
+    delivery_fee: Optional[float] = None            # EUR, when the platform exposes it
+    price_range: Optional[int] = None               # 1-4
+    online: bool = True
+    city: str = "Varna"
+    scraped_at: datetime = Field(default_factory=utcnow)
+
+
+class Dish(SQLModel, table=True):
+    __tablename__ = "dishes"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    restaurant_id: int = Field(foreign_key="restaurants.id", index=True)
+    platform: str = Field(index=True)
+    external_id: Optional[str] = None
+    name: str = Field(index=True)
+    name_key: str = Field(default="", index=True)
+    description: Optional[str] = None
+    category: Optional[str] = None
+    price: float                                    # EUR
+    original_price: Optional[float] = None          # when the platform shows a discount
+    image_url: Optional[str] = None
+    scraped_at: datetime = Field(default_factory=utcnow)
+
+
 # --------------------------------------------------------------------------- #
 # API shapes
 # --------------------------------------------------------------------------- #
@@ -145,6 +187,7 @@ class OfferRead(SQLModel):
     card_only: bool = False
     promo_label: Optional[str] = None
     effective_price: float = 0.0
+    is_promo: bool = True
     image_url: Optional[str]
     product_url: Optional[str]
     barcode: Optional[str]
@@ -188,7 +231,8 @@ class SimilarResponse(SQLModel):
 
 class StoreStatus(SQLModel):
     store: str
-    offers: int
+    offers: int                                     # promotions
+    regular: int = 0                                # regular-price catalogue items (Metro, Lidl)
     is_mock: bool
     last_scraped: Optional[datetime]
 
@@ -298,6 +342,80 @@ class WatchRead(SQLModel):
     current_best: Optional[OfferRead] = None        # cheapest matching offer right now
     hit: bool = False                               # current_best meets the target
     last_notified_at: Optional[datetime]
+
+
+# ---- restaurants (delivery comparison) --------------------------------------
+class RestaurantRead(SQLModel):
+    id: int
+    platform: str
+    name: str
+    group_key: str
+    url: str
+    image_url: Optional[str]
+    address: Optional[str]
+    tags: list[str] = []
+    rating: Optional[float]
+    rating_count: Optional[int]
+    delivery_minutes: Optional[int]
+    delivery_fee: Optional[float]
+    price_range: Optional[int]
+    online: bool
+    dish_count: int = 0
+
+    @classmethod
+    def from_row(cls, r: "Restaurant", dish_count: int = 0) -> "RestaurantRead":
+        data = r.model_dump()
+        data["tags"] = [t for t in (r.tags or "").split(",") if t]
+        return cls(**data, dish_count=dish_count)
+
+
+class RestaurantGroup(SQLModel):
+    """One real-world restaurant with its listings on every platform we know."""
+    group_key: str
+    name: str
+    image_url: Optional[str]
+    tags: list[str] = []
+    listings: list[RestaurantRead]                  # one per platform
+    cheapest_delivery_platform: Optional[str] = None
+
+
+class DishRead(SQLModel):
+    id: int
+    platform: str
+    name: str
+    description: Optional[str]
+    category: Optional[str]
+    price: float
+    original_price: Optional[float]
+    image_url: Optional[str]
+    restaurant_id: int
+    restaurant_name: str
+    restaurant_url: str
+    delivery_minutes: Optional[int] = None
+    delivery_fee: Optional[float] = None
+    score: Optional[int] = None
+
+
+class DishCompare(SQLModel):
+    """The same dish across platforms (matched by name inside one restaurant group)."""
+    name: str
+    offers: list[DishRead]                          # cheapest first
+    cheapest_platform: str
+    savings: float                                  # most expensive - cheapest
+
+
+class RestaurantDetail(SQLModel):
+    group: RestaurantGroup
+    categories: list[str]
+    dishes: list[DishCompare]                       # every dish, with per-platform prices
+
+
+class FoodStatus(SQLModel):
+    city: str
+    platforms: dict[str, int]                       # restaurants per platform
+    dishes: int
+    last_scraped: Optional[datetime]
+    scraping: bool
 
 
 # ---- list inbox (chat bridge) -----------------------------------------------

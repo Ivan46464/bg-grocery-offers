@@ -60,13 +60,20 @@ const qs = (params) => {
 // ---- offers --------------------------------------------------------------
 export const getStatus = (opts) => request("/api/status", opts);
 export const getTags = (opts) => request("/api/tags", opts);
-export const searchOffers = (q, { store, tag, sort = "price", limit = 100, signal } = {}) =>
-  request(`/api/search${qs({ q, store, tag, sort, limit })}`, { signal });
-export const listOffers = ({ store, tag, sort = "price", limit = 60, signal } = {}) =>
-  request(`/api/offers${qs({ store, tag, sort, limit })}`, { signal });
+/** promo: "promo" (promotions only) | "regular" (shelf prices) | "all" */
+export const searchOffers = (q, { store, tag, promo = "all", sort = "price", limit = 100, signal } = {}) =>
+  request(`/api/search${qs({ q, store, tag, promo, sort, limit })}`, { signal });
+export const listOffers = ({ store, tag, promo = "promo", sort = "price", limit = 60, signal } = {}) =>
+  request(`/api/offers${qs({ store, tag, promo, sort, limit })}`, { signal });
 export const getOfferHistory = (id, opts) => request(`/api/offers/${id}/history`, opts);
 /** Same product in other stores + similar products (pure matching, no AI service). */
 export const getSimilar = (id, opts) => request(`/api/offers/${id}/similar`, opts);
+
+// ---- restaurants (Varna delivery comparison) ------------------------------
+export const getFoodStatus = (opts) => request("/api/food/status", opts);
+export const listRestaurants = ({ q, tag, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, limit })}`, { signal });
+export const getRestaurant = (groupKey, opts) => request(`/api/food/restaurants/${encodeURIComponent(groupKey)}`, opts);
+export const searchDishes = (q, { limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, limit })}`, { signal });
 
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);
