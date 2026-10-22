@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-20T17:55:27.484230+00:00",
+ "generated": "2026-10-22T09:33:58.065338+00:00",
  "store": "Kaufland",
  "flyers": [
   {
@@ -40,7 +40,7 @@
  ],
  "offers": [
   {
-   "name": "Червени ябълки Kr",
+   "name": "Червени ябълки кг",
    "price": 0.79,
    "old_price": 1.29,
    "discount": null,
@@ -54,7 +54,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "КАПОКУПКА Свински гърди Kr Цена до 5 кг на покупка",
+   "name": "КАПОКУПКА Свински гърди кг Цена до 5 кг на покупка",
    "price": 5.89,
    "old_price": 8.18,
    "discount": null,
@@ -88,20 +88,6 @@
    "discount": 45,
    "y": 531,
    "x": 617,
-   "flyer": "BG_bg_KDZ_1400_BG43-LFT",
-   "page": 1,
-   "page_url": "https://leaflets.kaufland.com/bg-BG/BG_bg_KDZ_1400_BG43-LFT/view/flyer/page/1",
-   "page_image": "https://imgproxy.leaflets.schwarz/jiQy00m9gjnVtJMjEvUVju_qThpShRg-CKBOBJpBKWQ/rs:fit:400:400:1/g:no/czM6Ly9sZWFmbGV0cy9pbWFnZXMvMDFhMTBjM2QtM2Q5ZS03MWQ0LWExNjYtYjcwMDVkNGRkYmJiL3BhZ2UtMDFfZjQ2MWYwNjE5OGU2OWYzY2NmMDBiMjVlOTIyYjQ0ZTAucG5n.jpg",
-   "valid_from": "2026-10-19",
-   "valid_to": "2026-10-25"
-  },
-  {
-   "name": "OT СВЕЖАTA ВИТРИNА -27%",
-   "price": 6.49,
-   "old_price": 8.18,
-   "discount": null,
-   "y": 539,
-   "x": 155,
    "flyer": "BG_bg_KDZ_1400_BG43-LFT",
    "page": 1,
    "page_url": "https://leaflets.kaufland.com/bg-BG/BG_bg_KDZ_1400_BG43-LFT/view/flyer/page/1",
@@ -152,7 +138,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "50% Лютеница едро смляна различни видове от българска капия 550 г",
+   "name": "Лютеница едро смляна различни видове от българска капия 550 г",
    "price": 2.99,
    "old_price": 4.09,
    "discount": 26,
@@ -180,7 +166,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Моркови kr",
+   "name": "Моркови кг",
    "price": 0.54,
    "old_price": 1.29,
    "discount": null,
@@ -222,7 +208,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "глави Kr",
+   "name": "глави кг",
    "price": 1.25,
    "old_price": 1.99,
    "discount": 37,
@@ -236,7 +222,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "чушки Камби Kr 2 52-BG-KW43-LFT-OG_New_1_L-1000-10",
+   "name": "чушки Камби кг 2",
    "price": 2.49,
    "old_price": null,
    "discount": null,
@@ -264,7 +250,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Бяло грозде Kr",
+   "name": "Бяло грозде кг",
    "price": 1.49,
    "old_price": 2.99,
    "discount": 50,
@@ -306,7 +292,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Круши Конференс Kr",
+   "name": "Круши Конференс кг",
    "price": 1.69,
    "old_price": 2.55,
    "discount": null,
@@ -320,7 +306,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Букет рози 40 CM бр.",
+   "name": "Букет рози 40 см бр.",
    "price": 4.6,
    "old_price": null,
    "discount": null,
@@ -334,7 +320,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "660 Мандарини Kr",
+   "name": "660 Мандарини кг",
    "price": 1.49,
    "old_price": 2.99,
    "discount": null,
@@ -348,7 +334,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "различни цветове 39 CM 9 рози в букет",
+   "name": "различни цветове 39 см 9 рози в букет",
    "price": 3.57,
    "old_price": null,
    "discount": null,
@@ -376,7 +362,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сух чесън Kr",
+   "name": "Сух чесън кг",
    "price": 2.99,
    "old_price": 5.11,
    "discount": 41,
@@ -404,7 +390,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Картофи МИТИ Kr",
+   "name": "Картофи МИТИ кг",
    "price": 0.55,
    "old_price": null,
    "discount": null,
@@ -418,7 +404,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Калуна Джудже растение Градинско 013 cM",
+   "name": "Калуна Джудже растение Градинско 013 см",
    "price": 7.49,
    "old_price": null,
    "discount": null,
@@ -460,7 +446,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Мини зелени HEPPЯKA растения СЛЪНЧЕВА Стайно растение в керамика",
+   "name": "Мини зелени растения СЛЪНЧЕВА Стайно растение в керамика",
    "price": 3.99,
    "old_price": null,
    "discount": null,
@@ -502,7 +488,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Орхидея Фаленопсис Стайно растение 012CM СЛЪНЧЕВО височина: 50 - 70 CM",
+   "name": "Орхидея Фаленопсис Стайно растение 012CM СЛЪНЧЕВО височина: 50 - 70 см",
    "price": 7.66,
    "old_price": null,
    "discount": null,
@@ -586,7 +572,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "HOBO Суши поп-ъп сьомга, крема сирене",
+   "name": "Суши поп-ъп сьомга, крема сирене",
    "price": 5.99,
    "old_price": null,
    "discount": null,
@@ -810,7 +796,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "OPEХHТЕ ОРЕХИТЕ Луканка, Старец или Суджук Майсторльшка AYKAHKA серия 220 г",
+   "name": "ОРЕХИТЕ Луканка, Старец или Суджук Майсторльшка AYKAHKA серия 220 г",
    "price": 5.29,
    "old_price": 7.35,
    "discount": null,
@@ -852,7 +838,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Leki Наденица различни видове Kr",
+   "name": "Leki Наденица различни видове кг",
    "price": 5.99,
    "old_price": 8.69,
    "discount": 31,
@@ -866,7 +852,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Кашкавал от краве мляко Kr",
+   "name": "Кашкавал от краве мляко кг",
    "price": 9.19,
    "old_price": 15.18,
    "discount": null,
@@ -1090,7 +1076,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "БYЛМЕД Пчелен мед 1006",
+   "name": "Пчелен мед 1006",
    "price": 4.54,
    "old_price": 7.66,
    "discount": null,
@@ -1230,7 +1216,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Елена 100 г се правят от 185 г месо кr",
+   "name": "Елена 100 г се правят от 185 г месо кг",
    "price": 20.49,
    "old_price": 33.23,
    "discount": null,
@@ -1286,7 +1272,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "55% маСЛеНост различни видове Германия OT SВEЖATA BИТРINA",
+   "name": "55% маСЛеНост различни видове Германия OT",
    "price": 13.99,
    "old_price": null,
    "discount": null,
@@ -1468,7 +1454,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "или Розе различни сортове Тракийска низина 3 л BИB",
+   "name": "или Розе различни сортове Тракийска низина 3 л",
    "price": 6.79,
    "old_price": 10.35,
    "discount": null,
@@ -1510,7 +1496,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Тиква СaMсоH Kr",
+   "name": "Тиква кг",
    "price": 0.49,
    "old_price": 0.99,
    "discount": null,
@@ -1524,7 +1510,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Тиква Матилда Kr",
+   "name": "Тиква Матилда кг",
    "price": 0.39,
    "old_price": null,
    "discount": null,
@@ -1538,7 +1524,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Френска мускатна Kr",
+   "name": "Френска мускатна кг",
    "price": 0.79,
    "old_price": 1.29,
    "discount": null,
@@ -1552,7 +1538,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Тиква Хокайдо Kr 22",
+   "name": "Тиква Хокайдо кг 22",
    "price": 1.39,
    "old_price": 1.69,
    "discount": 17,
@@ -1720,7 +1706,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Ролева игра ИHhИUEDd видове",
+   "name": "Ролева игра видове",
    "price": 14.29,
    "old_price": 17.99,
    "discount": null,
@@ -1832,7 +1818,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "sаndvich с шунка и гауда 155 г Double мax",
+   "name": "с шунка и гауда 155 г Double",
    "price": 1.19,
    "old_price": null,
    "discount": null,
@@ -1986,7 +1972,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "плешка прясна Kr",
+   "name": "плешка прясна кг",
    "price": 10.99,
    "old_price": null,
    "discount": null,
@@ -2000,7 +1986,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "котлет с ребро Kr",
+   "name": "котлет с ребро кг",
    "price": 13.49,
    "old_price": null,
    "discount": null,
@@ -2014,7 +2000,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ЦЕНА ДО 5 кr НАПОКУПКА Свински бут без кост",
+   "name": "ЦЕНА ДО 5 кг НАПОКУПКА Свински бут без кост",
    "price": 3.29,
    "old_price": 5.43,
    "discount": null,
@@ -2028,7 +2014,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "OT СВEЖATA ВИТРИNА ЦЕНАДО 5 кr НАПОКУПКА Свинско каре без кост",
+   "name": "OT ЦЕНАДО 5 кг НАПОКУПКА Свинско каре без кост",
    "price": 3.99,
    "old_price": 8.18,
    "discount": null,
@@ -2042,7 +2028,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Пилешко филе от гърди Kr",
+   "name": "Пилешко филе от гърди кг",
    "price": 5.69,
    "old_price": 7.66,
    "discount": 25,
@@ -2070,7 +2056,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Свински врат без кост, маринован различни видове Kr",
+   "name": "Свински врат без кост, маринован различни видове кг",
    "price": 7.49,
    "old_price": 8.43,
    "discount": 11,
@@ -2084,7 +2070,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Кайма от свинско месо Kr",
+   "name": "Кайма от свинско месо кг",
    "price": 3.49,
    "old_price": 4.59,
    "discount": 23,
@@ -2098,7 +2084,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Bulgaria EOOD FRAGEDO Пилешко горно бутче обезкостено, без кожа Kr",
+   "name": "Bulgaria EOOD FRAGEDO Пилешко горно бутче обезкостено, без кожа кг",
    "price": 5.69,
    "old_price": 7.66,
    "discount": 25,
@@ -2140,7 +2126,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "PENELOPE Цяла патица PENELOPE охладена Kr DUC -Gilt nitcn",
+   "name": "PENELOPE Цяла патица PENELOPE охладена кг DUC -Gilt nitcn",
    "price": 3.72,
    "old_price": null,
    "discount": null,
@@ -2182,7 +2168,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Дебърцини Kr",
+   "name": "Дебърцини кг",
    "price": 4.15,
    "old_price": null,
    "discount": null,
@@ -2196,7 +2182,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "30% бpaBo Пуешки бут Kr",
+   "name": "30% Пуешки бут кг",
    "price": 6.59,
    "old_price": 11.35,
    "discount": 41,
@@ -2210,7 +2196,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Leki Свински врат варено-пушен Kr",
+   "name": "Leki Свински врат варено-пушен кг",
    "price": 5.79,
    "old_price": 7.66,
    "discount": 24,
@@ -2224,7 +2210,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Кренвирши Kr",
+   "name": "Кренвирши кг",
    "price": 5.09,
    "old_price": 7.36,
    "discount": null,
@@ -2238,7 +2224,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Луканкова наденица Удивителна варено-пушена опушена с естествен пушек Kr",
+   "name": "Луканкова наденица Удивителна варено-пушена опушена с естествен пушек кг",
    "price": 6.79,
    "old_price": 9.1,
    "discount": 25,
@@ -2252,7 +2238,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "37% сурово-сушена от свинско контрафиле с поръска 9 ароматни подправки Kr",
+   "name": "37% сурово-сушена от свинско контрафиле с поръска 9 ароматни подправки кг",
    "price": 12.49,
    "old_price": 23.0,
    "discount": 45,
@@ -2266,7 +2252,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Свински BPaT сурово-сушен Kr",
+   "name": "Свински BPaT сурово-сушен кг",
    "price": 18.99,
    "old_price": 30.16,
    "discount": null,
@@ -2336,7 +2322,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ЛЕКИ Свинско филе Kr",
+   "name": "ЛЕКИ Свинско филе кг",
    "price": 5.99,
    "old_price": 6.99,
    "discount": 14,
@@ -2378,7 +2364,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "35% сирене Gran Bavarese 50% мАСЛеНОСт Германия Kr",
+   "name": "35% сирене Gran Bavarese 50% мАСЛеНОСт Германия кг",
    "price": 14.99,
    "old_price": 25.56,
    "discount": 41,
@@ -2392,7 +2378,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "тип ементал 27% МАСЛЕНОСт Полша Kr",
+   "name": "тип ементал 27% МАСЛЕНОСт Полша кг",
    "price": 10.19,
    "old_price": 15.69,
    "discount": null,
@@ -2406,7 +2392,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "RASEWELT Моцарела Германия кr",
+   "name": "RASEWELT Моцарела Германия кг",
    "price": 8.65,
    "old_price": 12.26,
    "discount": 29,
@@ -2420,7 +2406,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сирене от краве мляко Kr",
+   "name": "Сирене от краве мляко кг",
    "price": 5.59,
    "old_price": 9.2,
    "discount": null,
@@ -2434,7 +2420,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сирене от козе мляко Kr",
+   "name": "Сирене от козе мляко кг",
    "price": 10.99,
    "old_price": null,
    "discount": null,
@@ -2476,7 +2462,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ТУШЕНО БУЛГАРЧЕ Топено сирене пyшенo 500 г MEGGLE",
+   "name": "ТУШЕНО БУЛГАРЧЕ Топено сирене 500 г MEGGLE",
    "price": 2.99,
    "old_price": 4.29,
    "discount": null,
@@ -2574,7 +2560,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Скумрия изчистена без глава размразена Kr",
+   "name": "Скумрия изчистена без глава размразена кг",
    "price": 8.59,
    "old_price": null,
    "discount": 10,
@@ -2588,7 +2574,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Ципура изчистена Средиземноморие прясна Kr",
+   "name": "Ципура изчистена Средиземноморие прясна кг",
    "price": 9.79,
    "old_price": 12.39,
    "discount": 20,
@@ -2602,7 +2588,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Фагри изчистено Средиземноморие прясно Kr",
+   "name": "Фагри изчистено Средиземноморие прясно кг",
    "price": 12.29,
    "old_price": 15.33,
    "discount": 19,
@@ -2616,7 +2602,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Скариди бланширани размразени Kr",
+   "name": "Скариди бланширани размразени кг",
    "price": 10.29,
    "old_price": 13.29,
    "discount": 22,
@@ -2630,7 +2616,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сьомгова пъстърва филе България прясно Kr 34",
+   "name": "Сьомгова пъстърва филе България прясно кг 34",
    "price": 11.99,
    "old_price": 14.99,
    "discount": 20,
@@ -2644,7 +2630,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сьомга котлет Норвегия presen Kr",
+   "name": "Сьомга котлет Норвегия presen кг",
    "price": 15.79,
    "old_price": 20.45,
    "discount": 22,
@@ -2658,7 +2644,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Хек филе размразено Kr",
+   "name": "Хек филе размразено кг",
    "price": 6.59,
    "old_price": 9.2,
    "discount": 28,
@@ -2672,7 +2658,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Маслини Уcnу 201/260 Турция Kr",
+   "name": "Маслини 201/260 Турция кг",
    "price": 3.59,
    "old_price": 6.64,
    "discount": 45,
@@ -2686,7 +2672,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "CLASSIC MAX Хумус различни вкусове 400 г ОТ СВЕЖАТA ВИТРИНА 46%",
+   "name": "CLASSIC MAX Хумус различни вкусове 400 г ОТ ВИТРИНА 46%",
    "price": 1.99,
    "old_price": 2.55,
    "discount": 21,
@@ -2700,7 +2686,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Каламата фини 321/380 Kr",
+   "name": "Каламата фини 321/380 кг",
    "price": 3.99,
    "old_price": 7.45,
    "discount": null,
@@ -2714,7 +2700,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Черни маслини Мамут 101/11 Гърция Kr",
+   "name": "Черни маслини Мамут 101/11 Гърция кг",
    "price": 3.99,
    "old_price": 7.66,
    "discount": 47,
@@ -2742,7 +2728,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "екстра 121/160 Гърция Kr",
+   "name": "екстра 121/160 Гърция кг",
    "price": 6.15,
    "old_price": 10.22,
    "discount": null,
@@ -2756,7 +2742,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Салата херинга с пресен копър Kr Ocean Fish",
+   "name": "Салата херинга с пресен копър кг Ocean Fish",
    "price": 8.19,
    "old_price": 12.27,
    "discount": null,
@@ -2812,7 +2798,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "На6ор за cyna пилешки Kr",
+   "name": "На6ор за cyna пилешки кг",
    "price": 1.99,
    "old_price": null,
    "discount": null,
@@ -2826,7 +2812,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "50% Пуйка Румъния Kr",
+   "name": "50% Пуйка Румъния кг",
    "price": 5.39,
    "old_price": 7.46,
    "discount": 27,
@@ -2840,7 +2826,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "БУЛКАРТО картофи 2,5 kr",
+   "name": "БУЛКАРТО картофи 2,5 кг",
    "price": 3.59,
    "old_price": 5.87,
    "discount": 38,
@@ -2910,7 +2896,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Скир промопакет 3x400 г myday смстано",
+   "name": "Скир промопакет myday смстано",
    "price": 3.99,
    "old_price": null,
    "discount": null,
@@ -3050,7 +3036,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ЧЕРРЕНА. ЛЕЩА IZZI ·ЕKЗОТИК Леща Екзотик червена",
+   "name": "ЧЕРРЕНА. ЛЕЩА IZZI Леща Екзотик червена",
    "price": 1.29,
    "old_price": 2.14,
    "discount": null,
@@ -3372,7 +3358,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "BUSHMILLS THE ORIGINAL BUSHMILLS Ирландско уиски 40% vol 1n -32%",
+   "name": "BUSHMILLS THE ORIGINAL BUSHMILLS Ирландско уиски 40% vol 1n",
    "price": 16.49,
    "old_price": null,
    "discount": null,
@@ -3414,7 +3400,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "BLACK Бърбън уиски E Aged 66%6 6- или 7-годишно 43 - 45% vol 0,7π",
+   "name": "BLACK Бърбън уиски E Aged 66%6 6- или 7-годишно 43 vol 0,7π",
    "price": 24.99,
    "old_price": 32.97,
    "discount": 24,
@@ -3526,7 +3512,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ROSE Бяло вино или Розе различни сортове ДунаBска равнина 3 л BіB SUEENDOL",
+   "name": "ROSE Бяло вино или Розе различни сортове равнина 3 л BіB SUEENDOL",
    "price": 4.99,
    "old_price": 8.92,
    "discount": null,
@@ -3610,7 +3596,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "QUEENS UEENS QUEENS Плодова ЯБЪЛКА ПОРТОКАЛ З КОНСЕРВАНТИ напитка GEЗ KOНСЕРВAНТИ различни видове 2 n PET",
+   "name": "QUEENS UEENS QUEENS Плодова ЯБЪЛКА ПОРТОКАЛ З КОНСЕРВАНТИ напитка различни видове 2 n PET",
    "price": 1.12,
    "old_price": 1.84,
    "discount": null,
@@ -3666,7 +3652,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "4% - 5% vol избрани видове 4×0,5n",
+   "name": "4% vol избрани видове 4×0,5n",
    "price": 2.95,
    "old_price": 4.91,
    "discount": null,
@@ -3708,7 +3694,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ZEROAMMONIA OLEO INTENSEE 1=2=3= HOBO",
+   "name": "ZEROAMMONIA OLEO INTENSEE 1=2=3=",
    "price": 7.15,
    "old_price": 8.18,
    "discount": 12,
@@ -3736,7 +3722,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "иHhиUEDd видове 90",
+   "name": "видове 90",
    "price": 0.89,
    "old_price": null,
    "discount": null,
@@ -4212,7 +4198,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ЦЕНА ДО 5кр НАПОКУТКА Пилешки крила Kr",
+   "name": "ЦЕНА ДО 5кр НАПОКУТКА Пилешки крила кг",
    "price": 2.75,
    "old_price": 3.57,
    "discount": 22,
@@ -4240,7 +4226,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Кашкавал от краве мляко Kr XXL",
+   "name": "Кашкавал от краве мляко кг XXL",
    "price": 6.49,
    "old_price": null,
    "discount": null,
@@ -4282,7 +4268,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "5НС'98 Свинска флейка Kr",
+   "name": "5НС'98 Свинска флейка кг",
    "price": 5.09,
    "old_price": null,
    "discount": null,
@@ -4296,7 +4282,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Лимони Kr",
+   "name": "Лимони кг",
    "price": 0.94,
    "old_price": 1.99,
    "discount": 52,
@@ -4324,7 +4310,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Български сини сливи Kr",
+   "name": "Български сини сливи кг",
    "price": 0.65,
    "old_price": 1.1,
    "discount": 40,
@@ -4338,7 +4324,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "HEINZ Майонеза 480Mл класик",
+   "name": "HEINZ Майонеза класик",
    "price": 2.17,
    "old_price": 4.34,
    "discount": null,
@@ -4352,7 +4338,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Сухa храHa за кучета 10 кр BRITA",
+   "name": "за кучета 10 кр BRITA",
    "price": 7.09,
    "old_price": null,
    "discount": null,
@@ -4394,7 +4380,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "ЦЕНА ДО НАПОКУПКА Банани Kr Цена до 5 кг на покупка",
+   "name": "ЦЕНА ДО НАПОКУПКА Банани кг Цена до 5 кг на покупка",
    "price": 1.09,
    "old_price": 1.89,
    "discount": null,
@@ -4436,7 +4422,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "КЛАС:1 -42% от свинско",
+   "name": "КЛАС:1 от свинско",
    "price": 1.49,
    "old_price": null,
    "discount": 21,
@@ -4604,7 +4590,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "DISSVT Йогурт сметанов 10%МАСЛЕНОСт 1кr",
+   "name": "DISSVT Йогурт сметанов 10%МАСЛЕНОСт",
    "price": 2.49,
    "old_price": 2.99,
    "discount": 16,
@@ -4618,7 +4604,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "Протеинов дeсeрт различни видове 40 г",
+   "name": "Протеинов различни видове 40 г",
    "price": 0.52,
    "old_price": 0.61,
    "discount": 14,
@@ -4870,7 +4856,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "ISS Варeнa шунка нарязана 150 г",
+   "name": "ISS шунка нарязана 150 г",
    "price": 2.15,
    "old_price": 2.55,
    "discount": 15,
@@ -4968,7 +4954,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "Keкс различни видове 600 г",
+   "name": "различни видове 600 г",
    "price": 2.79,
    "old_price": 3.52,
    "discount": 20,
@@ -5122,7 +5108,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "CLASSIC Крем от 6иcквити различни видове 400 г",
+   "name": "CLASSIC Крем от различни видове 400 г",
    "price": 2.39,
    "old_price": 3.06,
    "discount": 21,
@@ -5528,7 +5514,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "Ориз кръглозърнест 1кr",
+   "name": "Ориз кръглозърнест",
    "price": 1.29,
    "old_price": 1.53,
    "discount": null,
@@ -5598,7 +5584,7 @@
    "valid_to": "2026-11-15"
   },
   {
-   "name": "Манго Майонеза деликатесна леко захаросано 250 мл 425Mл 15%",
+   "name": "Манго Майонеза деликатесна леко захаросано 250 мл 15%",
    "price": 1.19,
    "old_price": 1.53,
    "discount": 22,
@@ -5724,7 +5710,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "BRAVISSIMO Конвекторна Фypнa BFC07 7n",
+   "name": "BRAVISSIMO Конвекторна BFC07 7n",
    "price": 27.99,
    "old_price": 51.12,
    "discount": 45,
@@ -5780,7 +5766,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "180 ×90 ×40 CM ypeд PMFW310 Мултифункционален 15 000 - 21 000о6/мин",
+   "name": "180 ×90 ×40 см PMFW310 Мултифункционален 15 000 - 21 000о6/мин",
    "price": 19.99,
    "old_price": 25.56,
    "discount": null,
@@ -5892,7 +5878,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "BRAVIСSИMO Сокоизстисквачка 666 BJ-400 контейнер 600 мл",
+   "name": "Сокоизстисквачка 666 BJ-400 контейнер 600 мл",
    "price": 18.99,
    "old_price": 37.99,
    "discount": 50,
@@ -5962,7 +5948,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "3BRIO Касерола Signature 018 CM",
+   "name": "3BRIO Касерола Signature 018 см",
    "price": 9.69,
    "old_price": 19.42,
    "discount": 50,
@@ -5976,7 +5962,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "3BRIO Тенджера Signature от 020 CM Гевгир 024 см или",
+   "name": "3BRIO Тенджера Signature от 020 см Гевгир 024 см или",
    "price": 9.99,
    "old_price": 20.45,
    "discount": 51,
@@ -5990,7 +5976,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "сметална решетка 3BRIO Hoж Metallica различни видове",
+   "name": "сметална решетка 3BRIO Metallica различни видове",
    "price": 1.29,
    "old_price": 2.86,
    "discount": 54,
@@ -6032,7 +6018,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Дамаджана Буркан с стъклена 1,5n капачка 580 mл, 07 cM или 720 mл, 08,2 cM",
+   "name": "Дамаджана Буркан с стъклена 1,5n капачка 580 07 см или 720 08,2 см",
    "price": 3.99,
    "old_price": 5.87,
    "discount": 32,
@@ -6116,7 +6102,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "SILVERCREST 19 CM",
+   "name": "SILVERCREST 19 см",
    "price": 3.49,
    "old_price": 6.99,
    "discount": 50,
@@ -6144,7 +6130,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "терлик различни 666 видове Боксер 35-46 S-XxL 6 S6-BG-KW43-OC1-NF3_L-1000-10",
+   "name": "терлик различни 666 видове Боксер 35-46 S-XxL 6",
    "price": 15.99,
    "old_price": 24.99,
    "discount": null,
@@ -6186,7 +6172,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "за легло 220× 240 CM",
+   "name": "за легло 220× 240 см",
    "price": 19.99,
    "old_price": null,
    "discount": null,
@@ -6200,7 +6186,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "aglika or Кальфки 50 × 70 CM",
+   "name": "aglika or Кальфки 50 × 70 см",
    "price": 3.19,
    "old_price": 5.19,
    "discount": 38,
@@ -6214,7 +6200,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "50% ITEX Възглавница Премиум 50 × 70 CM",
+   "name": "ITEX Възглавница Премиум 50 × 70 см",
    "price": 3.09,
    "old_price": null,
    "discount": 50,
@@ -6228,7 +6214,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Coral Fleece Lux от 150 x 210 CM до 200 × 210 сm OT",
+   "name": "Coral Fleece Lux от 150 x 210 см до 200 × 210 сm OT",
    "price": 9.69,
    "old_price": 19.42,
    "discount": null,
@@ -6256,7 +6242,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "TeD TeD Одеяло CHENNIL SHERPA от 150 × 200 CM до 200 x 200 см",
+   "name": "TeD TeD Одеяло CHENNIL SHERPA от 150 × 200 см до 200 x 200 см",
    "price": 17.99,
    "old_price": 26.59,
    "discount": null,
@@ -6368,7 +6354,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Кутия с колелца 79,5 × 59 ×17,5 CM",
+   "name": "Кутия с колелца 79,5 × 59 ×17,5 см",
    "price": 8.99,
    "old_price": null,
    "discount": null,
@@ -6396,7 +6382,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "40% 15 ЛИТРА",
+   "name": "15 ЛИТРА",
    "price": 1.69,
    "old_price": 3.39,
    "discount": 50,
@@ -6410,7 +6396,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "MUHLER Табуретка 37,5 × 38 × 38 CM",
+   "name": "MUHLER Табуретка 37,5 × 38 × 38 см",
    "price": 9.69,
    "old_price": 18.4,
    "discount": 47,
@@ -6466,7 +6452,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Бургeр и сос по избор 130 г",
+   "name": "и сос по избор 130 г",
    "price": 1.53,
    "old_price": 2.3,
    "discount": 33,
@@ -6480,7 +6466,7 @@
    "valid_to": "2026-10-25"
   },
   {
-   "name": "Свински бут без кост Kr",
+   "name": "Свински бут без кост кг",
    "price": 5.43,
    "old_price": null,
    "discount": null,
@@ -6494,7 +6480,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "със средна масленост Kr",
+   "name": "със средна масленост кг",
    "price": 5.09,
    "old_price": null,
    "discount": null,
@@ -6508,7 +6494,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "Домати розови 750 г ЦЕНА ДО 5 кr",
+   "name": "Домати розови 750 г ЦЕНА ДО 5 кг",
    "price": 3.08,
    "old_price": null,
    "discount": null,
@@ -6620,7 +6606,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "Ябълки Златна превъзходна Kr",
+   "name": "Ябълки Златна превъзходна кг",
    "price": 1.73,
    "old_price": null,
    "discount": null,
@@ -6634,7 +6620,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "ИHEH VEDA Винен оцет 700mл",
+   "name": "VEDA Винен оцет",
    "price": 0.97,
    "old_price": null,
    "discount": null,
@@ -6648,7 +6634,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "Кренвирши Kr",
+   "name": "Кренвирши кг",
    "price": 7.38,
    "old_price": null,
    "discount": null,
@@ -6662,7 +6648,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "Кашкавал от краве мляко Kr",
+   "name": "Кашкавал от краве мляко кг",
    "price": 6.55,
    "old_price": null,
    "discount": null,
@@ -6676,7 +6662,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "40% говеждо Meco Kr",
+   "name": "40% говеждо Meco кг",
    "price": 4.34,
    "old_price": null,
    "discount": null,
@@ -6760,7 +6746,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "кокошки размерM 10 6 г.",
+   "name": "кокошки 10 6 г.",
    "price": 2.08,
    "old_price": null,
    "discount": null,
@@ -6774,7 +6760,7 @@
    "valid_to": "2026-12-06"
   },
   {
-   "name": "Захар кристална 1кr",
+   "name": "Захар кристална",
    "price": 0.95,
    "old_price": null,
    "discount": null,
@@ -6822,20 +6808,6 @@
    "discount": null,
    "y": 703,
    "x": 155,
-   "flyer": "BG_bg_leaflet1_1000_BG27-FL1",
-   "page": 4,
-   "page_url": "https://leaflets.kaufland.com/bg-BG/BG_bg_leaflet1_1000_BG27-FL1/view/flyer/page/4",
-   "page_image": "https://imgproxy.leaflets.schwarz/m5VikADKjxVw_akAIREnO5m9pJSwvfEia-jDR7M7vAo/rs:fit:400:400:1/g:no/czM6Ly9sZWFmbGV0cy9pbWFnZXMvMDE5ZjcwNDktNDA0Yy03ZmIxLTg4OTYtMjA1ODA3YTZlNmE3L3BhZ2UtNF8wNDYwYmFhOTQwYTBhYmQyMmMxY2FiODk5Y2EyOWZjZi5wbmc.jpg",
-   "valid_from": "2026-06-08",
-   "valid_to": "2026-12-06"
-  },
-  {
-   "name": "бpашно тип 500 1кr",
-   "price": 0.64,
-   "old_price": null,
-   "discount": null,
-   "y": 703,
-   "x": 390,
    "flyer": "BG_bg_leaflet1_1000_BG27-FL1",
    "page": 4,
    "page_url": "https://leaflets.kaufland.com/bg-BG/BG_bg_leaflet1_1000_BG27-FL1/view/flyer/page/4",
