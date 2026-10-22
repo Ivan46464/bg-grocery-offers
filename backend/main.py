@@ -583,9 +583,11 @@ def food_status(session: Session = Depends(get_session)):
 
 
 @app.get("/api/food/restaurants", response_model=list[RestaurantGroup], tags=["food"])
-def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, limit: int = Query(60, ge=1, le=300), session: Session = Depends(get_session)):
-    """Restaurants in Varna grouped across platforms; optional name/tag filter."""
+def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, platform: Optional[str] = None, limit: int = Query(60, ge=1, le=300), session: Session = Depends(get_session)):
+    """Restaurants in Varna grouped across platforms; optional name/tag/platform filter."""
     rows = session.exec(select(Restaurant)).all()
+    if platform:
+        rows = [r for r in rows if r.platform.lower() == platform.lower()]
     if q:
         ql = q.lower()
         rows = [r for r in rows if ql in r.name.lower() or fuzz.partial_ratio(ql, r.name.lower()) >= 85 or ql in (r.tags or "")]
@@ -632,9 +634,12 @@ def food_restaurant(group_key: str, session: Session = Depends(get_session)):
 
 
 @app.get("/api/food/search", response_model=list[DishRead], tags=["food"])
-def food_search(q: str = Query(..., min_length=2, max_length=60), limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
+def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Optional[str] = None, limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
     """Dishes across all Varna restaurants and platforms, cheapest first ('пица маргарита', 'бургер')."""
-    rows = session.exec(select(Dish)).all()
+    stmt = select(Dish)
+    if platform:
+        stmt = stmt.where(func.lower(Dish.platform) == platform.lower())
+    rows = session.exec(stmt).all()
     rests = {r.id: r for r in session.exec(select(Restaurant)).all()}
     ql = q.lower().strip()
     extras = ("сос", "соус", "добавка", "допълнител", "екстра", "топинг", "кетчуп", "майонеза", "салфетк", "прибори")

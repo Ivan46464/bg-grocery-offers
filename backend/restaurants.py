@@ -1,6 +1,5 @@
 """
-Restaurant delivery comparison for Varna: Wolt (+ Glovo / Bolt Food when their
-scrapers are wired in). Each platform scraper returns Restaurant + Dish rows;
+Restaurant delivery comparison for Varna: Wolt, Glovo and Bolt Food. Each platform scraper returns Restaurant + Dish rows;
 restaurants are grouped across platforms by a normalised name so the same dish
 can be compared ("Пица Маргарита: 9.90 на Wolt, 10.50 на Glovo").
 
@@ -305,7 +304,150 @@ class GlovoScraper:
         return rest
 
 
-PLATFORM_SCRAPERS = [WoltScraper(), GlovoScraper()]
+# --------------------------------------------------------------------------- #
+# Bolt Food - food.bolt.eu is an Expo web app talking to a JSON API that has a
+# "public" (guest, no account) variant of every read endpoint:
+#   POST /deliveryClient/public/findProviders        {lat,lng,filters:[]}  -> restaurants
+#   GET  /deliveryClient/public/getMenuCategories    ?provider_id&delivery_lat&delivery_lng
+#        -> the whole menu tree (menu > category > dish > options), prices in EUR
+# We never create a guest user / account - the public routes need none.
+# --------------------------------------------------------------------------- #
+class BoltScraper:
+    platform = "Bolt"
+    API = "https://deliveryuser.live.boltsvc.net/deliveryClient/public"
+    STORE_URL = "https://food.bolt.eu/bg-BG/2098-varna/p/{pid}-{slug}"
+    MAX_PROVIDERS = 400
+    HEADERS = {**HEADERS, "Origin": "https://food.bolt.eu", "Referer": "https://food.bolt.eu/", "Content-Type": "application/json"}
+
+    def __init__(self) -> None:
+        import uuid
+
+        self._qs = {
+            "version": "FD.1.00", "deviceId": str(uuid.uuid4()), "device_name": "web", "device_os_version": "web",
+            "deviceType": "web", "language": "bg", "country": "bg",
+        }
+        self._loc = {"delivery_lat": VARNA["lat"], "delivery_lng": VARNA["lon"]}
+
+    def fetch(self) -> list[ScrapedRestaurant]:
+        out: list[ScrapedRestaurant] = []
+        try:
+            with httpx.Client(headers=self.HEADERS, timeout=40) as client:
+                providers = self._providers(client)
+                log.info("Bolt: %d restaurants listed in Varna", len(providers))
+                for i, p in enumerate(providers[: self.MAX_PROVIDERS]):
+                    try:
+                        r = self._restaurant(p)
+                        r.dishes = self._dishes(client, p["provider_id"])
+                        if r.dishes:
+                            out.append(r)
+                    except Exception as exc:  # noqa: BLE001
+                        log.info("Bolt: %s skipped (%s)", p.get("provider_id"), exc)
+                    if i % 50 == 49:
+                        log.info("Bolt: %d/%d providers done", i + 1, len(providers))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Bolt: listing failed (%s)", exc)
+        return out
+
+    def _get(self, client: httpx.Client, method: str, path: str, **kw) -> dict:
+        """Bolt answers HTTP 200 with code!=0 on errors and 429 on bursts -> retry with backoff."""
+        last = None
+        for attempt in range(5):
+            r = client.request(method, f"{self.API}/{path}", **kw)
+            if r.status_code == 200:
+                body = r.json()
+                if body.get("code") == 0:
+                    return body.get("data") or {}
+                last = body.get("message")
+                if body.get("code") != 1005:                   # 1005 = TOO_MANY_REQUESTS
+                    raise RuntimeError(last)
+            else:
+                last = f"HTTP {r.status_code}"
+            time.sleep(3 * (attempt + 1))
+        raise RuntimeError(f"gave up ({last})")
+
+    def _providers(self, client: httpx.Client) -> list[dict]:
+        data = self._get(client, "POST", "findProviders", params=self._qs, json={"lat": VARNA["lat"], "lng": VARNA["lon"], "filters": []})
+        seen: dict[int, dict] = {}
+        for p in data.get("providers") or []:
+            if p.get("provider_id") and _text(p.get("name")):
+                seen.setdefault(p["provider_id"], p)
+        return list(seen.values())
+
+    def _restaurant(self, p: dict) -> ScrapedRestaurant:
+        rating = p.get("rating") or p.get("rating_info") or {}
+        if not isinstance(rating, dict):
+            rating = {}
+        fee = (p.get("delivery_price") or {}).get("value")
+        eta = p.get("max_delivery_eta") or p.get("min_delivery_eta")
+        level = {"one": 1, "two": 2, "three": 3, "four": 4}.get(p.get("price_level_str") or "")
+        pid = p["provider_id"]
+        return ScrapedRestaurant(
+            platform=self.platform,
+            external_id=str(pid),
+            name=_text(p.get("name")).strip(),
+            url=self.STORE_URL.format(pid=pid, slug=(p.get("slug") or str(pid)).split("-", 1)[-1]),
+            image_url=_bolt_image(p.get("images"), "1x"),
+            address=p.get("address"),
+            tags=[_text(t) for t in (p.get("tags") or []) if _text(t)][:6],
+            rating=_x2(rating.get("value") or rating.get("rating")),          # Bolt rates 0-5; Wolt/Glovo use 0-10
+            rating_count=rating.get("count"),
+            delivery_minutes=int(eta / 60) if isinstance(eta, (int, float)) and eta else None,
+            delivery_fee=float(fee) if isinstance(fee, (int, float)) else None,
+            price_range=level,
+            online=bool(p.get("is_available_for_delivery", True)),
+        )
+
+    def _dishes(self, client: httpx.Client, pid: int) -> list[ScrapedDish]:
+        data = self._get(client, "GET", "getMenuCategories", params={**self._qs, "provider_id": pid, **self._loc})
+        time.sleep(0.4)                                # be polite between restaurants
+        items = data.get("items") or {}
+        dishes: list[ScrapedDish] = []
+        for it in items.values():
+            if it.get("type") != "dish":
+                continue
+            name = _text(it.get("name")).strip()
+            price = (it.get("price") or {}).get("value")
+            if not name or not isinstance(price, (int, float)) or price <= 0:
+                continue
+            orig = it.get("original_price")
+            orig = orig.get("value") if isinstance(orig, dict) else None
+            parent = items.get(str(it.get("parent_id"))) or {}
+            dishes.append(
+                ScrapedDish(
+                    external_id=str(it.get("id")),
+                    name=name,
+                    price=round(float(price), 2),
+                    original_price=round(float(orig), 2) if isinstance(orig, (int, float)) and orig > price else None,
+                    description=_text(it.get("description")).strip()[:300] or None,
+                    category=_text(parent.get("name")).strip() or None,
+                    image_url=_bolt_image(it.get("images"), "3x"),
+                )
+            )
+        return dishes
+
+
+def _x2(v) -> Optional[float]:
+    return round(float(v) * 2, 1) if isinstance(v, (int, float)) else None
+
+
+def _text(v) -> str:
+    """Bolt wraps localised strings as {"locale": "bg-BG", "value": "..."}."""
+    if isinstance(v, dict):
+        return str(v.get("value") or "")
+    return str(v or "")
+
+
+def _bolt_image(images, prefer: str) -> Optional[str]:
+    """images = {"provider_list_v1": {"aspect_ratio_map": {"original": {"1x": url, ...}}}} (some sizes empty)."""
+    for v in (images or {}).values():
+        sizes = ((v or {}).get("aspect_ratio_map") or {}).get("original") or {}
+        url = sizes.get(prefer) or sizes.get("1x") or sizes.get("2x") or sizes.get("3x")
+        if url:
+            return url
+    return None
+
+
+PLATFORM_SCRAPERS = [WoltScraper(), GlovoScraper(), BoltScraper()]
 
 
 # --------------------------------------------------------------------------- #

@@ -29,8 +29,11 @@ export function PlatformBadge({ platform, size = "sm" }) {
 
 const open = (url) => Linking.openURL(url).catch(() => {});
 
+const PLATFORM_ORDER = ["Wolt", "Glovo", "Bolt"];
+
 export default function FoodScreen({ query }) {
   const [status, setStatus] = useState(null);
+  const [platform, setPlatform] = useState(null); // null = compare all platforms
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +46,7 @@ export default function FoodScreen({ query }) {
     getFoodStatus().then(setStatus).catch(() => {});
   }, []);
 
-  const load = useCallback(async (q) => {
+  const load = useCallback(async (q, pf) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
@@ -51,13 +54,16 @@ export default function FoodScreen({ query }) {
     setError(null);
     try {
       if (q.trim().length >= 2) {
-        const [d, r] = await Promise.all([searchDishes(q.trim(), { signal: controller.signal }), listRestaurants({ q: q.trim(), limit: 8, signal: controller.signal })]);
+        const [d, r] = await Promise.all([
+          searchDishes(q.trim(), { platform: pf, signal: controller.signal }),
+          listRestaurants({ q: q.trim(), platform: pf, limit: 8, signal: controller.signal }),
+        ]);
         if (!controller.signal.aborted) {
           setDishes(d);
           setRestaurants(r);
         }
       } else {
-        const r = await listRestaurants({ limit: 100, signal: controller.signal });
+        const r = await listRestaurants({ platform: pf, limit: 100, signal: controller.signal });
         if (!controller.signal.aborted) {
           setRestaurants(r);
           setDishes([]);
@@ -71,20 +77,42 @@ export default function FoodScreen({ query }) {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(query), query ? SEARCH_DEBOUNCE_MS : 0);
+    const t = setTimeout(() => load(query, platform), query ? SEARCH_DEBOUNCE_MS : 0);
     return () => clearTimeout(t);
-  }, [query, load]);
+  }, [query, platform, load]);
+
+  const platformBar = (
+    <View style={styles.pfBar}>
+      {[null, ...PLATFORM_ORDER].map((p) => {
+        const active = platform === p;
+        const brand = p ? PLATFORMS[p] : { bg: colors.ink, fg: "#fff" };
+        const count = p ? status?.platforms?.[p] : null;
+        const disabled = p && status && !count;
+        return (
+          <Pressable key={String(p)} onPress={() => !disabled && setPlatform(p)} style={[styles.pfBtn, active && { backgroundColor: brand.bg, borderColor: brand.bg }, disabled && { opacity: 0.4 }]}>
+            <Text style={[styles.pfBtnText, active && { color: brand.fg }]}>
+              {p || "Сравни всички"}
+              {count ? ` ${count}` : ""}
+            </Text>
+          </Pressable>
+        );
+      })}
+    </View>
+  );
 
   const platformsLine = status ? Object.entries(status.platforms).map(([p, n]) => `${p} ${n}`).join(" · ") : "";
 
-  if (error) return <EmptyState icon="warning-outline" title="Грешка" subtitle={error} actionLabel="Опитай пак" onAction={() => load(query)} />;
-  if (loading && restaurants.length === 0 && dishes.length === 0) return <EmptyState loading title="Зареждаме ресторантите във Варна…" />;
-  if (status && status.dishes === 0) return <EmptyState icon="restaurant-outline" title="Менютата още се събират" subtitle="Първото изтегляне на ресторантите от Wolt отнема няколко минути след стартиране на сървъра." actionLabel="Опитай пак" onAction={() => load(query)} />;
+  let body;
+  if (error) body = <EmptyState icon="warning-outline" title="Грешка" subtitle={error} actionLabel="Опитай пак" onAction={() => load(query, platform)} />;
+  else if (loading && restaurants.length === 0 && dishes.length === 0) body = <EmptyState loading title="Зареждаме ресторантите във Варна…" />;
+  else if (status && status.dishes === 0) body = <EmptyState icon="restaurant-outline" title="Менютата още се събират" subtitle="Първото изтегляне на ресторантите отнема няколко минути след стартиране на сървъра." actionLabel="Опитай пак" onAction={() => load(query, platform)} />;
 
   const data = isSearching ? [{ type: "restaurants" }, ...dishes.map((d) => ({ type: "dish", d }))] : restaurants.map((g) => ({ type: "group", g }));
 
   return (
     <View style={{ flex: 1 }}>
+      {platformBar}
+      {body || (
       <FlatList
         data={data}
         keyExtractor={(it, i) => (it.type === "dish" ? `d${it.d.id}` : it.type === "group" ? `g${it.g.group_key}` : `r${i}`)}
@@ -119,7 +147,8 @@ export default function FoodScreen({ query }) {
           return <RestaurantCard g={item.g} onPress={() => setSelected(item.g.group_key)} />;
         }}
       />
-      <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} />
+      )}
+      <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} />
     </View>
   );
 }
@@ -176,7 +205,7 @@ function RestaurantCard({ g, onPress }) {
   );
 }
 
-function RestaurantSheet({ groupKey, onClose }) {
+function RestaurantSheet({ groupKey, onClose, platform }) {
   const insets = useSafeAreaInsets();
   const [detail, setDetail] = useState(null);
   const [cat, setCat] = useState(null);
@@ -186,7 +215,10 @@ function RestaurantSheet({ groupKey, onClose }) {
     if (groupKey) getRestaurant(groupKey).then(setDetail).catch(() => setDetail({ error: true }));
   }, [groupKey]);
   if (!groupKey) return null;
-  const dishes = detail?.dishes?.filter((d) => !cat || d.offers.some((o) => o.category === cat)) || [];
+  // when a single platform is selected, show only that platform's prices
+  const dishes = (detail?.dishes || [])
+    .map((d) => (platform ? { ...d, offers: d.offers.filter((o) => o.platform === platform) } : d))
+    .filter((d) => d.offers.length && (!cat || d.offers.some((o) => o.category === cat)));
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -200,7 +232,7 @@ function RestaurantSheet({ groupKey, onClose }) {
           <>
             <Text style={styles.sheetTitle}>{detail.group.name}</Text>
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-              {detail.group.listings.map((l) => (
+              {detail.group.listings.filter((l) => !platform || l.platform === platform).map((l) => (
                 <Pressable key={l.platform} onPress={() => open(l.url)} style={styles.platformBtn}>
                   <PlatformBadge platform={l.platform} size="lg" />
                   <Text style={styles.platformMeta}>
@@ -254,6 +286,9 @@ function RestaurantSheet({ groupKey, onClose }) {
 }
 
 const styles = StyleSheet.create({
+  pfBar: { flexDirection: "row", gap: 6, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 10, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  pfBtn: { flex: 1, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: "center" },
+  pfBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
   label: { fontSize: 13, color: colors.ink2, marginBottom: 10 },
   sub: { fontSize: 12, fontWeight: "800", color: colors.ink2, textTransform: "uppercase", letterSpacing: 0.4, marginBottom: 6 },

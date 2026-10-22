@@ -71,9 +71,9 @@ export const getSimilar = (id, opts) => request(`/api/offers/${id}/similar`, opt
 
 // ---- restaurants (Varna delivery comparison) ------------------------------
 export const getFoodStatus = (opts) => request("/api/food/status", opts);
-export const listRestaurants = ({ q, tag, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, limit })}`, { signal });
+export const listRestaurants = ({ q, tag, platform, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, platform, limit })}`, { signal });
 export const getRestaurant = (groupKey, opts) => request(`/api/food/restaurants/${encodeURIComponent(groupKey)}`, opts);
-export const searchDishes = (q, { limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, limit })}`, { signal });
+export const searchDishes = (q, { platform, limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, platform, limit })}`, { signal });
 
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);
