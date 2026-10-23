@@ -23,7 +23,7 @@ import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View }
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius } from "../theme";
-import { loadAccountDeals, saveAccountDeals } from "../storage";
+import { saveAccountDeals, saveAccountSession } from "../storage";
 
 export const ACCOUNTS = {
   Wolt: {
@@ -71,7 +71,8 @@ const inject = (platform, cfg, loc) => `
   if (window.__bgInjected) return; window.__bgInjected = true;
   var P = ${JSON.stringify(platform)}, CFG = ${JSON.stringify(cfg)}, LOC = ${JSON.stringify(loc || { lat: 43.2141, lng: 27.9147 })};
   var LIST = new RegExp(CFG.list), MENU = new RegExp(CFG.menu);
-  var auth = null, qs = null, fetched = {}, listDone = false, seenProv = {};
+  var auth = null, qs = null, fetched = {}, listDone = false, seenProv = {}, sessHeaders = null, listReq = null, menuTplSeen = null, sessPosted = 0;
+  window.__bgEarly = true;
   function post(o){ try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){} }
   function isApi(url){ for (var i = 0; i < CFG.hosts.length; i++) if (url.indexOf(CFG.hosts[i]) >= 0) return true; return false; }
   function txt(v){
@@ -122,7 +123,10 @@ const inject = (platform, cfg, loc) => `
   function handle(url, h, body, text, own){
     if (!url || !isApi(url)) return;
     var authed = !!(h && h.Authorization);
-    if (authed && !own) { auth = h.Authorization; var q = url.split('?')[1]; if (q) qs = q.replace(/&?(provider_id|delivery_lat|delivery_lng|lat|lon|lng|slug)=[^&]*/g, '').replace(/^&/, ''); }
+    if (authed && !own) { auth = h.Authorization; sessHeaders = h; var q = url.split('?')[1]; if (q) qs = q.replace(/&?(provider_id|delivery_lat|delivery_lng|lat|lon|lng|slug)=[^&]*/g, '').replace(/^&/, '');
+      if (LIST.test(url) && !listReq) listReq = { url: url, method: (body ? 'POST' : 'GET'), body: (typeof body === 'string' ? body : null) };
+      if (MENU.test(url) && !LIST.test(url) && !menuTplSeen) menuTplSeen = url.replace(/provider_id=\\d+/, 'provider_id={id}').replace(/venues\\/slug\\/[^\\/?]+/, 'venues/slug/{slug}').replace(/stores\\/\\d+/, 'stores/{id}');
+      if (listReq && sessPosted < 3) { sessPosted++; post({ type: 'session', platform: P, headers: sessHeaders, listReq: listReq, menuTpl: menuTplSeen || CFG.menuTpl, qs: qs }); } }
     var j; try { j = JSON.parse(text); } catch(e){ return; }
     if (MENU.test(url) && !LIST.test(url)) { var m = /provider_id=(\\d+)|venues\\/slug\\/([^\\/?]+)|stores\\/(\\d+)/.exec(url); var pid = m ? (m[1] || m[2] || m[3]) : ''; var r0 = scan(j, pid, (seenProv[pid] || {}).name || ''); if (r0.dishes.length) post({ type: 'dishes', platform: P, provider_id: pid, deals: r0.dishes.slice(0, 80) }); return; }
     var r = scan(j, '', '');
@@ -143,6 +147,9 @@ const inject = (platform, cfg, loc) => `
 })(); true;
 `;
 
+// After load: if the early hook did not run (Android sometimes skips it on the first load) reload once so it does.
+const AFTER_LOAD = `(function(){ try { if (!window.__bgEarly && !sessionStorage.getItem('bgReloaded')) { sessionStorage.setItem('bgReloaded', '1'); setTimeout(function(){ location.reload(); }, 800); } } catch(e){} })(); true;`;
+
 const UA = "Mozilla/5.0 (Linux; Android 14; SM-A266B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
 
 /** Merge one capture message into the stored per-platform record. */
@@ -162,7 +169,7 @@ function mergeMessage(rec, m) {
   return next;
 }
 
-export function useAccountWebView(platform, location, onUpdate) {
+export function useAccountWebView(platform, location, onUpdate, onSession) {
   const recRef = useRef(null);
   const [rec, setRec] = useState(null);
   useEffect(() => {
@@ -174,6 +181,11 @@ export function useAccountWebView(platform, location, onUpdate) {
     try {
       m = JSON.parse(e.nativeEvent.data);
     } catch {
+      return;
+    }
+    if (m.type === "session" && m.headers && m.listReq) {
+      saveAccountSession(platform, { headers: m.headers, listReq: m.listReq, menuTpl: m.menuTpl || null, qs: m.qs || null, connectedAt: new Date().toISOString(), expired: false });
+      onSession?.(platform);
       return;
     }
     if (m.type !== "providers" && m.type !== "dishes") return;
@@ -196,8 +208,8 @@ function getWebView() {
 }
 
 /** Invisible refresh: loads the platform signed-in (cookies kept) and lets the script collect. */
-export function HiddenRefresh({ platform, location, onUpdate, onDone, timeoutMs = 75000 }) {
-  const { onMessage, script, cfg } = useAccountWebView(platform, location, onUpdate);
+export function HiddenRefresh({ platform, location, onUpdate, onSession, onDone, timeoutMs = 75000 }) {
+  const { onMessage, script, cfg } = useAccountWebView(platform, location, onUpdate, onSession);
   const WebView = getWebView();
   useEffect(() => {
     const t = setTimeout(() => onDone?.(platform), timeoutMs);
@@ -206,15 +218,20 @@ export function HiddenRefresh({ platform, location, onUpdate, onDone, timeoutMs 
   if (!WebView) return null;
   return (
     <View style={{ width: 1, height: 1, opacity: 0, position: "absolute", left: -10, top: -10 }} pointerEvents="none">
-      <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={script} onMessage={onMessage} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled userAgent={UA} style={{ width: 1, height: 1 }} />
+      <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={AFTER_LOAD} onMessage={onMessage} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled userAgent={UA} style={{ width: 1, height: 1 }} />
     </View>
   );
 }
 
-export default function AccountConnect({ platform, visible, location, onClose, onUpdate }) {
+export default function AccountConnect({ platform, visible, location, onClose, onUpdate, onSession }) {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
-  const { rec, onMessage, script, cfg } = useAccountWebView(platform, location, onUpdate);
+  const [connected, setConnected] = useState(false);
+  useEffect(() => setConnected(false), [platform, visible]);
+  const { rec, onMessage, script, cfg } = useAccountWebView(platform, location, onUpdate, (p) => {
+    setConnected(true);
+    onSession?.(p);
+  });
   if (!visible || !platform) return null;
   const WebView = getWebView();
   const nProv = rec ? Object.keys(rec.providers).length : 0;
@@ -227,18 +244,18 @@ export default function AccountConnect({ platform, visible, location, onClose, o
           <View style={{ flex: 1 }}>
             <Text style={[styles.title, { color: cfg.fg }]}>{platform} · твоят профил</Text>
             <Text style={[styles.sub, { color: cfg.fg }]} numberOfLines={2}>
-              {rec?.authed
-                ? `Влязъл си. Събираме автоматично: ${nProv} ресторанта с промо · ${nDish} ястия с отстъпка${rec.total ? ` (прегледани ${rec.total})` : ""}.`
+              {connected || rec?.authed
+                ? `Свързано ✓ Оттук нататък приложението само тегли отстъпките ти. Засега: ${nProv} ресторанта с промо · ${nDish} ястия${rec?.total ? ` (прегледани ${rec.total})` : ""}. Можеш да натиснеш Готово.`
                 : `${cfg.hint} Паролата остава в ${platform} - ние виждаме само отстъпките.`}
             </Text>
           </View>
           <Pressable onPress={onClose} style={styles.done}>
-            <Ionicons name={found ? "checkmark" : "close"} size={18} color="#fff" />
-            <Text style={styles.doneText}>{found ? "Готово" : "Затвори"}</Text>
+            <Ionicons name={found || connected ? "checkmark" : "close"} size={18} color="#fff" />
+            <Text style={styles.doneText}>{found || connected ? "Готово" : "Затвори"}</Text>
           </Pressable>
         </View>
         {WebView ? (
-          <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={script} onMessage={onMessage} onLoadEnd={() => setLoading(false)} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled setSupportMultipleWindows={false} userAgent={UA} style={{ flex: 1 }} />
+          <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={AFTER_LOAD} onMessage={onMessage} onLoadEnd={() => setLoading(false)} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled setSupportMultipleWindows={false} userAgent={UA} style={{ flex: 1 }} />
         ) : (
           <View style={styles.center}>
             <Text style={styles.subDark}>Входът в {platform} работи само в приложението на телефона.</Text>

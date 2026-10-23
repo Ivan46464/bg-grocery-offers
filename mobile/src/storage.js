@@ -14,6 +14,7 @@ const KEYS = {
   foodOrders: "food.orders.v1",
   foodLocation: "food.location.v1",
   accountDeals: "accounts.deals.v1",
+  accountSessions: "accounts.sessions.v1",
 };
 
 async function read(key, fallback) {
@@ -103,7 +104,13 @@ export const clearAccountDeals = async (platform) => {
   const all = await loadAllAccountDeals();
   delete all[platform];
   await write(KEYS.accountDeals, all);
+  const ss = await loadAccountSessions();
+  delete ss[platform];
+  await write(KEYS.accountSessions, ss);
 };
+/** The session a connected platform's page used: { headers, listReq: {url, method, body}, menuTpl, qs, connectedAt, expired }. */
+export const loadAccountSessions = () => read(KEYS.accountSessions, {});
+export const saveAccountSession = async (platform, sess) => write(KEYS.accountSessions, { ...(await loadAccountSessions()), [platform]: sess });
 
 /** Restaurant orders you logged: { id, date, store (platform), note (restaurant), items: [{ name, qty, price }], total }. */
 export const loadFoodOrders = () => read(KEYS.foodOrders, []);

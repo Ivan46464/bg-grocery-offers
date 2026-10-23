@@ -17,10 +17,11 @@ import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFoodDeals, getFoodNearby, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
 import AccountConnect, { ACCOUNTS, ACCOUNT_ORDER, HiddenRefresh } from "../components/AccountConnect";
+import { dueAccounts, refreshAccount } from "../accounts";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS } from "../config";
-import { clearAccountDeals, loadAllAccountDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
+import { clearAccountDeals, loadAccountSessions, loadAllAccountDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
 import { colors, cuisineColors, money, radius, shadow, targetColors } from "../theme";
 
 export const PLATFORMS = {
@@ -112,7 +113,9 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   const [locPicker, setLocPicker] = useState(false);
   const [connect, setConnect] = useState(null); // platform whose sign-in sheet is open
   const [accounts, setAccounts] = useState({}); // { Wolt: {...}, Glovo: {...}, Bolt: {...} } captured from the user's own sessions
-  const [refreshing, setRefreshing] = useState([]); // platforms being refreshed invisibly
+  const [refreshing, setRefreshing] = useState([]); // platforms being refreshed right now
+  const [hidden, setHidden] = useState([]); // platforms refreshed through an invisible page (no replayable session yet)
+  const [sessions, setSessions] = useState({});
   const refreshedRef = useRef(new Set());
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
@@ -128,18 +131,53 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
     getFoodStatus().then(setStatus).catch(() => {});
     loadFoodLocation().then((l) => l && setLocation(l));
     loadAllAccountDeals().then((a) => a && setAccounts(a));
+    loadAccountSessions().then((ss) => ss && setSessions(ss));
   }, []);
 
-  // connected platforms refresh by themselves (invisible WebView, cookies kept) when Промоции opens, at most once per app session per platform
+  const onAccountUpdate = useCallback((p, data) => setAccounts((a) => ({ ...a, [p]: data })), []);
+  const onSession = useCallback((p) => loadAccountSessions().then(setSessions), []);
+  const onHiddenDone = useCallback((p) => setHidden((r) => r.filter((x) => x !== p)), []);
+
+  /** Replay the stored session of one platform from the app itself (no page). */
+  const runRefresh = useCallback(
+    async (p, force = false) => {
+      const ss = await loadAccountSessions();
+      const sess = ss[p];
+      if (!sess?.listReq) {
+        // connected before sessions were stored: refresh through the invisible page once, it will post the session
+        if (accounts[p]?.authed) setHidden((r) => [...new Set([...r, p])]);
+        return;
+      }
+      if (sess.expired && !force) return;
+      setRefreshing((r) => [...new Set([...r, p])]);
+      try {
+        const rec = await refreshAccount(p, sess, location);
+        setAccounts((a) => ({ ...a, [p]: rec }));
+      } catch (e) {
+        if (e.expired) setSessions(await loadAccountSessions());
+      } finally {
+        setRefreshing((r) => r.filter((x) => x !== p));
+      }
+    },
+    [accounts, location]
+  );
+
+  // connected platforms refresh by themselves when Промоции opens (when older than 30 min), once per app session per platform
   useEffect(() => {
     if (target !== "deals") return;
-    const due = ACCOUNT_ORDER.filter((p) => accounts[p]?.authed && !refreshedRef.current.has(p));
-    if (!due.length) return;
-    due.forEach((p) => refreshedRef.current.add(p));
-    setRefreshing((r) => [...new Set([...r, ...due])]);
-  }, [target, accounts]);
-  const onAccountUpdate = useCallback((p, data) => setAccounts((a) => ({ ...a, [p]: data })), []);
-  const onRefreshDone = useCallback((p) => setRefreshing((r) => r.filter((x) => x !== p)), []);
+    let on = true;
+    dueAccounts(accounts).then((due) => {
+      if (!on) return;
+      for (const p of due) {
+        if (refreshedRef.current.has(p)) continue;
+        refreshedRef.current.add(p);
+        runRefresh(p);
+      }
+    });
+    return () => {
+      on = false;
+    };
+  }, [target, accounts, runRefresh]);
 
   // live delivery info for the chosen point (cached 15 min on the server)
   useEffect(() => {
@@ -352,11 +390,12 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
               return (
                 <AccountsCard
                   accounts={accounts}
-                  refreshing={refreshing}
+                  sessions={sessions}
+                  refreshing={[...refreshing, ...hidden]}
                   platform={platform}
                   onConnect={setConnect}
-                  onRefresh={(p) => { refreshedRef.current.add(p); setRefreshing((r) => [...new Set([...r, p])]); }}
-                  onClear={async (p) => { await clearAccountDeals(p); setAccounts((a) => { const n = { ...a }; delete n[p]; return n; }); }}
+                  onRefresh={(p) => runRefresh(p, true)}
+                  onClear={async (p) => { await clearAccountDeals(p); setAccounts((a) => { const n = { ...a }; delete n[p]; return n; }); setSessions(await loadAccountSessions()); }}
                 />
               );
             if (item.type === "analysis") return <AnalysisCard accounts={accounts} deals={visibleDishes} nearby={nearby} location={location} platform={platform} />;
@@ -370,9 +409,9 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} saved={saved} nearby={nearby} />
       <CompareSheet dish={compare} onClose={() => setCompare(null)} saved={saved} />
       <LocationSheet visible={locPicker} current={location} onClose={() => setLocPicker(false)} onPick={pickLocation} />
-      <AccountConnect platform={connect} visible={!!connect} location={location} onClose={() => setConnect(null)} onUpdate={onAccountUpdate} />
-      {refreshing.map((p) => (
-        <HiddenRefresh key={p} platform={p} location={location} onUpdate={onAccountUpdate} onDone={onRefreshDone} />
+      <AccountConnect platform={connect} visible={!!connect} location={location} onClose={() => setConnect(null)} onUpdate={onAccountUpdate} onSession={onSession} />
+      {hidden.map((p) => (
+        <HiddenRefresh key={p} platform={p} location={location} onUpdate={onAccountUpdate} onSession={onSession} onDone={onHiddenDone} />
       ))}
     </View>
   );
@@ -386,36 +425,40 @@ const fmtWhen = (iso) => {
 const orderUrl = (platform, p) => (ACCOUNTS[platform].order || "").replace("{id}", p.id || "").replace("{slug}", p.slug || "");
 
 /** One card per platform: connect / refresh / clear, with what the account sees. */
-function AccountsCard({ accounts, refreshing, platform, onConnect, onRefresh, onClear }) {
+function AccountsCard({ accounts, sessions, refreshing, platform, onConnect, onRefresh, onClear }) {
   return (
     <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
         <Ionicons name="person-circle" size={20} color={targetColors.deals} />
         <Text style={[styles.name, { flex: 1 }]}>Твоите профили</Text>
       </View>
-      <Text style={styles.meta}>Платформите показват най-добрите си отстъпки (Wolt+, Glovo Prime, Bolt Plus, лични кампании) само на влезли потребители. Влез веднъж във всяка - после отстъпките се обновяват сами, без да цъкаш.</Text>
+      <Text style={styles.meta}>Платформите показват най-добрите си отстъпки (Wolt+, Glovo Prime, Bolt Plus, лични кампании) само на влезли потребители. Свържи всяка веднъж - после приложението само тегли отстъпките ти на всеки 30 мин, без да отваряш нищо.</Text>
       {ACCOUNT_ORDER.filter((p) => !platform || platform === p).map((p) => {
         const rec = accounts[p];
+        const sess = sessions?.[p];
+        const connected = !!(sess?.listReq || rec?.authed);
+        const expired = !!sess?.expired;
         const n = rec ? (rec.providers || []).length + (rec.dishes || []).length : 0;
         const busy = refreshing.includes(p);
         const c = PLATFORMS[p];
+        const title = !connected ? "не е свързан" : expired ? "сесията изтече - свържи пак" : n ? `свързан · ${n} промо за теб` : rec ? `свързан · ${rec.total ? `${rec.total} ресторанта прегледани, ` : ""}няма промо в момента` : "свързан · изтегляме…";
         return (
           <View key={p} style={[styles.accRow, { borderColor: c.bg }]}>
             <PlatformBadge platform={p} size="lg" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.accTitle}>{rec?.authed ? (n ? `${n} промо за теб` : "влязъл · няма промо в момента") : "не е свързан"}</Text>
-              <Text style={styles.meta}>{busy ? "обновяваме…" : rec?.capturedAt ? `обновено ${fmtWhen(rec.capturedAt)}` : "влез, за да виждаш отстъпките си"}</Text>
+              <Text style={[styles.accTitle, expired && { color: colors.danger }]}>{title}</Text>
+              <Text style={styles.meta}>{busy ? "теглим от профила ти…" : rec?.capturedAt ? `обновено ${fmtWhen(rec.capturedAt)} · само` : connected ? "обновява се автоматично" : "свържи, за да виждаш отстъпките си"}</Text>
             </View>
             {busy ? <ActivityIndicator size="small" color={c.bg} /> : null}
-            <Pressable onPress={() => (rec?.authed ? onRefresh(p) : onConnect(p))} style={[styles.accBtn, { backgroundColor: c.bg }]}>
-              <Text style={[styles.accBtnText, { color: c.fg }]}>{rec?.authed ? "Обнови" : "Влез"}</Text>
+            <Pressable onPress={() => (connected && !expired ? onRefresh(p) : onConnect(p))} style={[styles.accBtn, { backgroundColor: c.bg }]}>
+              <Text style={[styles.accBtnText, { color: c.fg }]}>{!connected ? "Свържи" : expired ? "Свържи пак" : "Обнови"}</Text>
             </Pressable>
             {rec ? (
               <Pressable onPress={() => onClear(p)} hitSlop={8} style={{ padding: 4 }}>
                 <Ionicons name="close-circle-outline" size={20} color={colors.ink3} />
               </Pressable>
             ) : null}
-            {rec?.authed ? (
+            {connected ? (
               <Pressable onPress={() => onConnect(p)} hitSlop={8} style={{ padding: 4 }} accessibilityLabel="Отвори профила">
                 <Ionicons name="open-outline" size={18} color={colors.ink3} />
               </Pressable>
@@ -466,7 +509,7 @@ function AnalysisCard({ accounts, deals, nearby, location, platform }) {
     if (ks.length) lines.push(`Доставка до ${location.label}: ${ks.map((p) => `${p} средно ${money(fees[p].avg)} (${fees[p].n} места)`).join(" · ")}${ks.length > 1 ? ` → по-евтино с ${ks.sort((a, b) => fees[a].avg - fees[b].avg)[0]}.` : "."}`);
   }
   const missing = plats.filter((p) => !accounts[p]?.authed);
-  if (missing.length) lines.push(`Свържи ${missing.join(", ")} - тогава виждаме и личните ти отстъпки там.`);
+  if (missing.length) lines.push(`Свържи ${missing.join(", ")} веднъж - после личните ти отстъпки там се теглят сами.`);
   if (!lines.length) return null;
   return (
     <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 6, backgroundColor: "#FDF2F8", borderWidth: 1, borderColor: "#FBCFE8" }]}>
