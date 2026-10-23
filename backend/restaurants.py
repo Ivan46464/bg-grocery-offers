@@ -43,6 +43,50 @@ def group_key(name: str) -> str:
     return " ".join(base.split())[:80] or name.lower()
 
 
+# --------------------------------------------------------------------------- #
+# Dish kinds - so a search for "дюнер" ranks the dish above "Дюнер месо" (an
+# add-on) and the app can show Основни / Гарнитури / Напитки / Десерти / Добавки.
+# --------------------------------------------------------------------------- #
+_KIND_BY_CATEGORY = [
+    ("drink", re.compile(r"напитк|drink|безалкохол|алкохол|бира|beer|вин[ао]\b|wine|кафе|coffee|чай\b|\btea|коктейл|cocktail|сок|juice|вод[аи]\b|water|фреш|смути|smoothie|лимонад|шейк|shake|ракия|уиски|whisk|джин\b|водка|\bром\b|бар\b", re.I)),
+    ("dessert", re.compile(r"десерт|dessert|сладк|sweet|торт|cake|палачинк|pancake|сладолед|ice ?cream|баклав|тирамису|чийзкейк|cheesecake|брауни|мъфин|вафл|waffle|кроасан|еклер|бисквит|cookie|шоколад|гофрет", re.I)),
+    ("extra", re.compile(r"добавк|допълн|екстр|extra|топинг|topping|сосове|\bсос\b|sauce|дресинг|dressing|прибори|салфетк|опаковк|add-?on|заливк", re.I)),
+    ("side", re.compile(r"гарнитур|\bside|картоф|fries|хляб|bread|питк|пърленк|\bориз\b|\brice\b", re.I)),
+]
+_KIND_BY_NAME = [
+    ("extra", re.compile(r"^(добавка|доп\.|допълнително|допълнителна|екстра|extra|сос|сосче|дресинг|топинг|заливка|прибори|салфетки|опаковка)\b|\b(сос|сосче|дресинг|топинг|добавка)$", re.I)),
+    ("drink", re.compile(r"\b(кока.?кола|кола|cola|coke|фанта|fanta|спрайт|sprite|пепси|pepsi|айрян|айран|ayran|вода|water|бира|beer|сок|juice|кафе|coffee|еспресо|espresso|капучино|cappuccino|лате|latte|чай|tea|фреш|лимонада|lemonade|смути|smoothie|шейк|shake|коктейл|cocktail|вино|wine|ракия|уиски|whisky|джин|gin|водка|vodka|тоник|tonic|ред бул|red ?bull|schweppes|швепс|минерална|газирана|напитка|drink|фрапе|frappe|мохито|mojito)\b", re.I)),
+    ("dessert", re.compile(r"\b(торта|торт[аи]|cake|палачинк\w*|pancake|сладолед|ice ?cream|баклава|тирамису|чийзкейк|cheesecake|брауни|brownie|мъфин|muffin|вафл\w*|waffle|кроасан|croissant|еклер|крем ?карамел|десерт|dessert|бисквит\w*|cookie|гофрет\w*|суфле|пай\b|крем\b|кекс|донът|donut|понички?|мекиц\w*)\b", re.I)),
+    ("side", re.compile(r"^(гарнитура|пържени картоф\w*|картофки|картофи|картоф\w*|хляб|питка|пърленка|бял ориз|ориз|french fries|fries|sweet potato)\b", re.I)),
+]
+_MEAT_ADDON = re.compile(r"^(дюнер|пилешко|телешко|свинско|агнешко|кебап|кюфте|гирос|gyros|doner|döner)\s+месо$", re.I)
+
+
+def dish_kind(name: str, category: Optional[str] = None, price: Optional[float] = None) -> str:
+    """'Шопска салата' -> main; 'Дюнер месо' / 'Сос чесън' -> extra; 'Кока-Кола 500мл' -> drink."""
+    n = (name or "").strip()
+    c = (category or "").strip()
+    if re.search(r"комбо|combo|меню|menu", n, re.I):              # "Комбо бургер + Coca-Cola" is a meal
+        return "main"
+    if re.search(r"без гарнитура", n + " " + c, re.I):
+        return "main"
+    for kind, rx in _KIND_BY_CATEGORY:
+        if c and rx.search(c):
+            if kind == "drink" and _KIND_BY_NAME[3][1].search(n):     # "Пържени картофки" in a bar's menu is still a side
+                return "side"
+            return kind
+    if _MEAT_ADDON.match(n):
+        return "extra"
+    for kind, rx in _KIND_BY_NAME:
+        if rx.search(n):
+            if kind == "extra" and price is not None and price > 4:   # "Сос болонезе паста" style mains are pricier than add-ons
+                continue
+            return kind
+    if price is not None and price < 1.2 and len(n.split()) <= 2:    # a 0.60 € two-word item is an add-on, not a meal
+        return "extra"
+    return "main"
+
+
 @dataclass
 class ScrapedDish:
     external_id: Optional[str]
@@ -472,6 +516,7 @@ def store_restaurants(session: Session, platform: str, restaurants: list[Scraped
             Dish(
                 restaurant_id=row.id, platform=r.platform, external_id=d.external_id, name=d.name, name_key=name_key(d.name),
                 description=d.description, category=d.category, price=d.price, original_price=d.original_price, image_url=d.image_url,
+                kind=dish_kind(d.name, d.category, d.price),
             )
             for d in r.dishes
         )

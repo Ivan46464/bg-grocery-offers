@@ -167,6 +167,7 @@ class Dish(SQLModel, table=True):
     price: float                                    # EUR
     original_price: Optional[float] = None          # when the platform shows a discount
     image_url: Optional[str] = None
+    kind: str = Field(default="main", index=True)     # main | side | extra | drink | dessert (see restaurants.dish_kind)
     scraped_at: datetime = Field(default_factory=utcnow)
 
 
@@ -388,9 +389,12 @@ class DishRead(SQLModel):
     price: float
     original_price: Optional[float]
     image_url: Optional[str]
+    kind: str = "main"
+    discount_pct: Optional[int] = None              # when original_price > price
     restaurant_id: int
     restaurant_name: str
     restaurant_url: str
+    restaurant_group: Optional[str] = None
     delivery_minutes: Optional[int] = None
     delivery_fee: Optional[float] = None
     score: Optional[int] = None
@@ -414,6 +418,7 @@ class FoodStatus(SQLModel):
     city: str
     platforms: dict[str, int]                       # restaurants per platform
     dishes: int
+    deals: int = 0                                  # dishes currently discounted on some platform
     last_scraped: Optional[datetime]
     scraping: bool
 

@@ -7,6 +7,7 @@ import React, { useMemo, useState } from "react";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { STORES } from "../../config";
+import { PLATFORMS } from "../FoodScreen";
 import { colors, money, radius, shadow } from "../../theme";
 
 const MONTHS = ["яну", "фев", "мар", "апр", "май", "юни", "юли", "авг", "сеп", "окт", "ное", "дек"];
@@ -16,8 +17,13 @@ const fmtDate = (iso) => {
   return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")}.${d.getFullYear()}`;
 };
 
-export default function ExpensesView({ trips, onDelete }) {
+/** kind: "store" (grocery trips) | "food" (restaurant orders - trip.store is the platform, trip.restaurant the place) */
+export default function ExpensesView({ trips, onDelete, kind = "store" }) {
   const [open, setOpen] = useState(null);
+  const food = kind === "food";
+  const palette = food ? PLATFORMS : STORES;
+  const one = food ? "поръчка" : "пазаруване";
+  const many = food ? "поръчки" : "пазарувания";
 
   const stats = useMemo(() => {
     const now = new Date();
@@ -46,9 +52,9 @@ export default function ExpensesView({ trips, onDelete }) {
   if (trips.length === 0) {
     return (
       <View style={styles.empty}>
-        <Ionicons name="wallet-outline" size={36} color={colors.ink3} />
-        <Text style={styles.emptyTitle}>Още няма записани покупки</Text>
-        <Text style={styles.emptySub}>Направи списък, отметни продуктите в магазина, въведи цените и натисни „Приключи пазаруването“ - тук ще виждаш колко харчиш за храна по месеци и магазини.</Text>
+        <Ionicons name={food ? "restaurant-outline" : "wallet-outline"} size={36} color={colors.ink3} />
+        <Text style={styles.emptyTitle}>{food ? "Още няма записани поръчки" : "Още няма записани покупки"}</Text>
+        <Text style={styles.emptySub}>{food ? "Запази ястия със сърцето в „Ресторанти“, отметни поръчаното в „Запазени“ и натисни „Поръчах“ - или запиши поръчка ръчно. Тук ще виждаш колко харчиш за доставки по месеци и платформи." : "Направи списък, отметни продуктите в магазина, въведи цените и натисни „Приключи пазаруването“ - тук ще виждаш колко харчиш за храна по месеци и магазини."}</Text>
       </View>
     );
   }
@@ -62,7 +68,7 @@ export default function ExpensesView({ trips, onDelete }) {
         <Text style={styles.heroLabel}>Този месец</Text>
         <Text style={styles.heroValue}>{money(stats.thisMonth.total)}</Text>
         <Text style={styles.heroSub}>
-          {stats.thisMonth.trips} {stats.thisMonth.trips === 1 ? "пазаруване" : "пазарувания"}
+          {stats.thisMonth.trips} {stats.thisMonth.trips === 1 ? one : many}
           {delta != null ? ` · ${delta >= 0 ? "+" : ""}${delta.toFixed(0)}% спрямо ${stats.prevMonth.label}` : ""}
           {` · общо ${money(stats.allTime)}`}
         </Text>
@@ -87,13 +93,13 @@ export default function ExpensesView({ trips, onDelete }) {
       {/* by store this month */}
       {stats.byStore.length > 0 && (
         <View style={styles.card}>
-          <Text style={styles.cardTitle}>По магазини този месец</Text>
+          <Text style={styles.cardTitle}>{food ? "По платформи този месец" : "По магазини този месец"}</Text>
           {stats.byStore.map(([store, total]) => (
             <View key={store} style={styles.storeRow}>
-              <View style={[styles.dot, { backgroundColor: STORES[store]?.bg || colors.ink3 }]} />
+              <View style={[styles.dot, { backgroundColor: palette[store]?.bg || colors.ink3 }]} />
               <Text style={styles.storeName}>{store}</Text>
               <View style={styles.storeTrack}>
-                <View style={[styles.storeFill, { width: `${(total / stats.thisMonth.total) * 100}%`, backgroundColor: STORES[store]?.bg || colors.ink3 }]} />
+                <View style={[styles.storeFill, { width: `${(total / stats.thisMonth.total) * 100}%`, backgroundColor: palette[store]?.bg || colors.ink3 }]} />
               </View>
               <Text style={styles.storeTotal}>{money(total)}</Text>
             </View>
@@ -103,20 +109,22 @@ export default function ExpensesView({ trips, onDelete }) {
 
       {/* trips */}
       <View style={styles.card}>
-        <Text style={styles.cardTitle}>Покупки</Text>
+        <Text style={styles.cardTitle}>{food ? "Поръчки" : "Покупки"}</Text>
         {trips.map((t, idx) => {
           const expanded = open === t.id;
           return (
             <View key={t.id} style={[idx > 0 && styles.tripBorder]}>
               <Pressable onPress={() => setOpen(expanded ? null : t.id)} style={styles.trip}>
-                <View style={[styles.dot, { backgroundColor: STORES[t.store]?.bg || colors.ink3 }]} />
+                <View style={[styles.dot, { backgroundColor: palette[t.store]?.bg || colors.ink3 }]} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.tripStore}>
-                    {t.store}
+                    {food && t.restaurant ? t.restaurant : t.store}
+                    {food && t.restaurant ? <Text style={styles.tripNote}> · {t.store}</Text> : null}
                     {t.note ? <Text style={styles.tripNote}> · {t.note}</Text> : null}
                   </Text>
                   <Text style={styles.tripMeta}>
-                    {fmtDate(t.date)} · {t.items.length} продукта
+                    {fmtDate(t.date)}
+                    {t.items.length ? ` · ${t.items.length} ${food ? (t.items.length === 1 ? "ястие" : "ястия") : "продукта"}` : ""}
                   </Text>
                 </View>
                 <Text style={styles.tripTotal}>{money(t.total)}</Text>
@@ -135,7 +143,7 @@ export default function ExpensesView({ trips, onDelete }) {
                   ))}
                   <Pressable onPress={() => onDelete(t.id)} style={styles.delete} hitSlop={6}>
                     <Ionicons name="trash-outline" size={14} color={colors.danger} />
-                    <Text style={styles.deleteText}>Изтрий покупката</Text>
+                    <Text style={styles.deleteText}>{food ? "Изтрий поръчката" : "Изтрий покупката"}</Text>
                   </Pressable>
                 </View>
               )}

@@ -13,21 +13,34 @@ import ProductPicker from "../components/ProductPicker";
 import ScreenHeader from "../components/ScreenHeader";
 import Segmented from "../components/Segmented";
 import { useToast } from "../components/Toast";
-import { cartItemId, loadCart, loadTrips, newId, saveCart, saveTrips } from "../storage";
+import { cartItemId, loadCart, loadFoodOrders, loadSavedDishes, loadTrips, newId, onSavedDishesChange, saveCart, saveFoodOrders, saveSavedDishes, saveTrips } from "../storage";
 import { colors } from "../theme";
 import ExpensesView from "./cart/ExpensesView";
 import ListView from "./cart/ListView";
 import OptimizeView from "./cart/OptimizeView";
+import SavedDishesView from "./cart/SavedDishesView";
 
 const TABS = [
   { key: "list", label: "Списък", icon: "list" },
   { key: "best", label: "Най-евтино", icon: "sparkles" },
   { key: "spend", label: "Разходи", icon: "wallet" },
 ];
+const FOOD_TABS = [
+  { key: "saved", label: "Запазени", icon: "heart" },
+  { key: "orders", label: "Разходи", icon: "wallet" },
+];
+const MODES = [
+  { key: "markets", label: "Магазини", icon: "cart" },
+  { key: "food", label: "Ресторанти", icon: "restaurant" },
+];
 
 export default function CartScreen() {
   const toast = useToast();
+  const [mode, setMode] = useState("markets"); // markets | food
   const [tab, setTab] = useState("list");
+  const [foodTab, setFoodTab] = useState("saved");
+  const [savedDishes, setSavedDishes] = useState([]);
+  const [orders, setOrders] = useState([]);
   const [items, setItems] = useState([]);
   const [trips, setTrips] = useState([]);
   const [picker, setPicker] = useState(false);
@@ -41,6 +54,9 @@ export default function CartScreen() {
     useCallback(() => {
       let cancelled = false;
       loadTrips().then(setTrips);
+      loadSavedDishes().then(setSavedDishes);
+      loadFoodOrders().then(setOrders);
+      const unsub = onSavedDishesChange(setSavedDishes);
       (async () => {
         const current = await loadCart();
         if (cancelled) return;
@@ -78,6 +94,7 @@ export default function CartScreen() {
       })();
       return () => {
         cancelled = true;
+        unsub();
       };
     }, [toast])
   );
@@ -149,18 +166,48 @@ export default function CartScreen() {
     saveTrips(next);
   };
 
-  const subtitle = tab === "list" ? "Напиши, отметни, запиши цените" : tab === "best" ? "Къде е най-евтино този списък" : "Колко харчиш за храна";
+  const setSaved = (next) => {
+    setSavedDishes(next);
+    saveSavedDishes(next);
+  };
+  const logOrder = ({ platform, restaurant, note, total, items: ordered }) => {
+    const order = { id: newId(), date: new Date().toISOString(), store: platform, restaurant, note, items: ordered, total };
+    const next = [order, ...orders];
+    setOrders(next);
+    saveFoodOrders(next);
+    toast(`Записано: ${restaurant} · ${total.toFixed(2)} €`, "wallet");
+    setFoodTab("orders");
+  };
+  const deleteOrder = (id) => {
+    const next = orders.filter((o) => o.id !== id);
+    setOrders(next);
+    saveFoodOrders(next);
+  };
+
+  const subtitle =
+    mode === "food"
+      ? foodTab === "saved"
+        ? "Ястия, които си харесал в Wolt / Glovo / Bolt"
+        : "Колко харчиш за доставки"
+      : tab === "list"
+      ? "Напиши, отметни, запиши цените"
+      : tab === "best"
+      ? "Къде е най-евтино този списък"
+      : "Колко харчиш за храна";
 
   return (
     <View style={styles.screen}>
       <ScreenHeader title="Количка" subtitle={subtitle} icon="basket">
-        <Segmented options={TABS} value={tab} onChange={setTab} />
+        <Segmented options={MODES} value={mode} onChange={setMode} style={{ marginBottom: 8 }} />
+        {mode === "food" ? <Segmented options={FOOD_TABS} value={foodTab} onChange={setFoodTab} /> : <Segmented options={TABS} value={tab} onChange={setTab} />}
       </ScreenHeader>
 
       <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
-        {tab === "list" && <ListView items={items} onChange={setList} onFinishTrip={finishTrip} onFillPrices={fillPrices} filling={filling} onOpenPicker={() => setPicker(true)} />}
-        {tab === "best" && <OptimizeView items={items.filter((it) => !it.done).length ? items.filter((it) => !it.done) : items} result={result} loading={loading} error={error} onRun={runOptimize} onOpenOffer={setSelected} onGoToList={() => setTab("list")} />}
-        {tab === "spend" && <ExpensesView trips={trips} onDelete={deleteTrip} />}
+        {mode === "food" && foodTab === "saved" && <SavedDishesView items={savedDishes} onChange={setSaved} onLogOrder={logOrder} />}
+        {mode === "food" && foodTab === "orders" && <ExpensesView kind="food" trips={orders} onDelete={deleteOrder} />}
+        {mode === "markets" && tab === "list" && <ListView items={items} onChange={setList} onFinishTrip={finishTrip} onFillPrices={fillPrices} filling={filling} onOpenPicker={() => setPicker(true)} />}
+        {mode === "markets" && tab === "best" && <OptimizeView items={items.filter((it) => !it.done).length ? items.filter((it) => !it.done) : items} result={result} loading={loading} error={error} onRun={runOptimize} onOpenOffer={setSelected} onGoToList={() => setTab("list")} />}
+        {mode === "markets" && tab === "spend" && <ExpensesView trips={trips} onDelete={deleteTrip} />}
       </ScrollView>
 
       <ProductPicker visible={picker} onClose={() => setPicker(false)} onPick={addProduct} title="Добави в списъка" />

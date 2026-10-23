@@ -73,7 +73,10 @@ export const getSimilar = (id, opts) => request(`/api/offers/${id}/similar`, opt
 export const getFoodStatus = (opts) => request("/api/food/status", opts);
 export const listRestaurants = ({ q, tag, platform, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, platform, limit })}`, { signal });
 export const getRestaurant = (groupKey, opts) => request(`/api/food/restaurants/${encodeURIComponent(groupKey)}`, opts);
-export const searchDishes = (q, { platform, limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, platform, limit })}`, { signal });
+/** kind: main | side | extra | drink | dessert (add-ons rank below real dishes when omitted) */
+export const searchDishes = (q, { platform, kind, limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, platform, kind, limit })}`, { signal });
+/** Dishes a platform currently shows discounted (crossed-out old price), biggest discount first. */
+export const getFoodDeals = ({ platform, kind, limit = 100, signal } = {}) => request(`/api/food/deals${qs({ platform, kind, limit })}`, { signal });
 
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);

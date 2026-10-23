@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Optional
@@ -81,7 +82,7 @@ from models import (
 )
 from push import best_match, check_watches, meets_target
 from rapidfuzz import fuzz
-from restaurants import run_all_restaurant_scrapers, same_dish
+from restaurants import dish_kind, run_all_restaurant_scrapers, same_dish
 from scraper import STORE_NAMES, offers_count, run_all_scrapers
 from search import search_offers
 from tags import TAGS
@@ -544,11 +545,28 @@ def delete_watch(watch_id: int, token: str, session: Session = Depends(get_sessi
 
 
 # ---- restaurants (Varna delivery comparison) --------------------------------
+# The dish search scores every dish in Varna (~50k rows) on each keystroke; loading them as ORM
+# objects per request takes seconds on a small server, so keep a plain-tuple index in memory and
+# rebuild it only when the dishes table changes (after a restaurant scrape).
+_DISH_INDEX: dict = {"version": None, "rows": []}
+
+
+def _dish_index(session: Session) -> list[tuple]:
+    version = session.exec(select(func.count(Dish.id), func.max(Dish.id))).one()
+    if _DISH_INDEX["version"] != version:
+        rows = session.exec(select(Dish.id, Dish.name, Dish.name_key, Dish.kind, Dish.price, Dish.restaurant_id, Dish.platform)).all()
+        _DISH_INDEX["rows"] = [(i, (n or "").lower(), k, kd or "main", p, rid, pl) for i, n, k, kd, p, rid, pl in rows]
+        _DISH_INDEX["version"] = version
+    return _DISH_INDEX["rows"]
+
+
 def _dish_read(d: Dish, r: Restaurant, score: Optional[int] = None) -> DishRead:
+    pct = int(round((d.original_price - d.price) / d.original_price * 100)) if d.original_price and d.original_price > d.price > 0 else None
     return DishRead(
         id=d.id, platform=d.platform, name=d.name, description=d.description, category=d.category, price=d.price,
-        original_price=d.original_price, image_url=d.image_url, restaurant_id=r.id, restaurant_name=r.name,
-        restaurant_url=r.url, delivery_minutes=r.delivery_minutes, delivery_fee=r.delivery_fee, score=score,
+        original_price=d.original_price, image_url=d.image_url, kind=d.kind or "main", discount_pct=pct, restaurant_id=r.id,
+        restaurant_name=r.name, restaurant_url=r.url, restaurant_group=r.group_key, delivery_minutes=r.delivery_minutes,
+        delivery_fee=r.delivery_fee, score=score,
     )
 
 
@@ -579,7 +597,8 @@ def food_status(session: Session = Depends(get_session)):
     for p, _ in rows:
         platforms[p] = platforms.get(p, 0) + 1
     dishes = session.exec(select(func.count(Dish.id))).one()
-    return FoodStatus(city="Varna", platforms=platforms, dishes=int(dishes or 0), last_scraped=max((s for _, s in rows), default=None), scraping=_state["food_scraping"])
+    deals = session.exec(select(func.count(Dish.id)).where(Dish.original_price > Dish.price)).one()
+    return FoodStatus(city="Varna", platforms=platforms, dishes=int(dishes or 0), deals=int(deals or 0), last_scraped=max((s for _, s in rows), default=None), scraping=_state["food_scraping"])
 
 
 @app.get("/api/food/restaurants", response_model=list[RestaurantGroup], tags=["food"])
@@ -589,13 +608,17 @@ def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, platfor
     if platform:
         rows = [r for r in rows if r.platform.lower() == platform.lower()]
     if q:
-        ql = q.lower()
-        rows = [r for r in rows if ql in r.name.lower() or fuzz.partial_ratio(ql, r.name.lower()) >= 85 or ql in (r.tags or "")]
+        ql = q.lower().strip()
+        rows = [r for r in rows if ql in r.name.lower() or (len(ql) >= 4 and fuzz.partial_ratio(ql, r.name.lower()) >= 88) or ql in (r.tags or "").lower()]
     if tag:
         rows = [r for r in rows if tag.lower() in (r.tags or "").lower()]
     counts = {rid: n for rid, n in session.exec(select(Dish.restaurant_id, func.count(Dish.id)).group_by(Dish.restaurant_id)).all()}
     groups = _groups(rows, counts)
-    groups.sort(key=lambda g: (-(max((l.rating or 0) for l in g.listings)), g.name))
+    if q:
+        ql = q.lower().strip()
+        groups.sort(key=lambda g: (not g.name.lower().startswith(ql), ql not in g.name.lower(), -(max((l.rating or 0) for l in g.listings)), g.name))
+    else:
+        groups.sort(key=lambda g: (-(max((l.rating or 0) for l in g.listings)), g.name))
     return groups[:limit]
 
 
@@ -633,37 +656,74 @@ def food_restaurant(group_key: str, session: Session = Depends(get_session)):
     return RestaurantDetail(group=group, categories=cats, dishes=compares)
 
 
-@app.get("/api/food/search", response_model=list[DishRead], tags=["food"])
-def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Optional[str] = None, limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
-    """Dishes across all Varna restaurants and platforms, cheapest first ('пица маргарита', 'бургер')."""
-    stmt = select(Dish)
+@app.get("/api/food/deals", response_model=list[DishRead], tags=["food"])
+def food_deals(platform: Optional[str] = None, kind: Optional[str] = None, limit: int = Query(100, ge=1, le=400), session: Session = Depends(get_session)):
+    """Dishes that a platform currently shows with a crossed-out old price (Wolt / Glovo / Bolt promos), biggest discount first."""
+    stmt = select(Dish).where(Dish.original_price > Dish.price)
     if platform:
         stmt = stmt.where(func.lower(Dish.platform) == platform.lower())
+    if kind:
+        stmt = stmt.where(Dish.kind == kind)
     rows = session.exec(stmt).all()
     rests = {r.id: r for r in session.exec(select(Restaurant)).all()}
-    ql = q.lower().strip()
-    extras = ("сос", "соус", "добавка", "допълнител", "екстра", "топинг", "кетчуп", "майонеза", "салфетк", "прибори")
-    asked_extra = any(w in ql for w in extras)
-    best: dict[tuple, tuple[int, Dish]] = {}
+    best: dict[tuple, Dish] = {}
     for d in rows:
         r = rests.get(d.restaurant_id)
         if not r:
             continue
-        nl = d.name.lower()
-        s = 100 if ql in nl else int(max(fuzz.partial_ratio(ql, nl), fuzz.token_set_ratio(ql, nl)))
+        key = (r.group_key, d.platform, d.name_key)
+        if key not in best or d.price < best[key].price:
+            best[key] = d
+    reads = [_dish_read(d, rests[d.restaurant_id]) for d in best.values()]
+    reads.sort(key=lambda x: (-(x.discount_pct or 0), x.price))
+    return reads[:limit]
+
+
+@app.get("/api/food/search", response_model=list[DishRead], tags=["food"])
+def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Optional[str] = None, kind: Optional[str] = None, limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
+    """Dishes across all Varna restaurants and platforms, cheapest first ('пица маргарита', 'бургер').
+
+    kind=main|side|extra|drink|dessert narrows to that kind; without it add-ons ("Дюнер месо", sauces) rank
+    below real dishes unless the query itself asks for a drink / sauce / dessert."""
+    rests = {r.id: r for r in session.exec(select(Restaurant)).all()}
+    ql = q.lower().strip()
+    q_kind = dish_kind(ql)
+    demote = {"extra": 30, "side": 12, "drink": 15, "dessert": 15} if (q_kind == "main" and not kind) else {}
+    extras = ("сос", "соус", "добавка", "допълнител", "екстра", "топинг", "кетчуп", "майонеза", "салфетк", "прибори")
+    asked_extra = any(w in ql for w in extras)
+    word_start = re.compile(rf"(?<!\w){re.escape(ql)}")
+    pf = platform.lower() if platform else None
+    multi = " " in ql
+    long_q = len(ql) >= 6
+    best: dict[tuple, tuple[int, int, float]] = {}   # (group_key, platform, name_key) -> (score, dish id, price)
+    for did, nl, name_key, dkind, price, rid, dplatform in _dish_index(session):
+        if (pf and dplatform.lower() != pf) or (kind and dkind != kind):
+            continue
+        r = rests.get(rid)
+        if not r:
+            continue
+        if word_start.search(nl):
+            s = 100                                     # the query starts a word: "кола" in "кока-кола", not in "шоколад"
+        else:
+            tok = max((fuzz.ratio(ql, t) for t in nl.split()), default=0)        # a typo inside one word
+            tsr = fuzz.token_set_ratio(ql, nl) if multi else 0                   # multi-word queries, any order
+            par = fuzz.partial_ratio(ql, nl) - 10 if long_q else 0              # weaker: "урнебес" for "небесна"
+            s = int(max(tok, tsr, par))
         if s < 80:
             continue
         if not asked_extra and any(w in nl for w in extras):
             s -= 25                                     # "Бургер сос" is not a burger
+        s -= demote.get(dkind, 0)                       # "Дюнер месо" (add-on) ranks under "Дюнер"
         if s < 70:
             continue
         # one row per (restaurant chain, platform, dish): branches of a chain repeat the same menu
-        key = (r.group_key, d.platform, d.name_key)
+        key = (r.group_key, dplatform, name_key)
         cur = best.get(key)
-        if cur is None or d.price < cur[1].price:
-            best[key] = (s, d)
-    hits = sorted(best.values(), key=lambda t: (-(t[0] >= 95), t[1].price, -t[0]))   # exact matches first, then cheapest
-    return [_dish_read(d, rests[d.restaurant_id], s) for s, d in hits[:limit]]
+        if cur is None or price < cur[2]:
+            best[key] = (s, did, price)
+    hits = sorted(best.values(), key=lambda t: (-(t[0] >= 95), t[2], -t[0]))[:limit]   # exact matches first, then cheapest
+    by_id = {d.id: d for d in session.exec(select(Dish).where(Dish.id.in_([h[1] for h in hits]))).all()} if hits else {}
+    return [_dish_read(by_id[did], rests[by_id[did].restaurant_id], s) for s, did, _ in hits if did in by_id]
 
 
 # ---- admin ------------------------------------------------------------------

@@ -10,6 +10,8 @@ const KEYS = {
   device: "device.token.v1",
   pushToken: "push.token.v1",
   trips: "trips.v1",
+  savedDishes: "food.saved.v1",
+  foodOrders: "food.orders.v1",
 };
 
 async function read(key, fallback) {
@@ -66,6 +68,32 @@ export const saveFlag = (key, v) => write("flag." + key, v);
 /** Shopping trips (expense log): { id, date, store, note, items: [{name, qty, price}], total }. Newest first. */
 export const loadTrips = () => read(KEYS.trips, []);
 export const saveTrips = (trips) => write(KEYS.trips, trips);
+/** Restaurant dishes you liked (Wolt / Glovo / Bolt): { id, name, price, original_price, platform, restaurant_name, restaurant_url, image_url, savedAt }. */
+export const loadSavedDishes = () => read(KEYS.savedDishes, []);
+const savedListeners = new Set();
+export const onSavedDishesChange = (fn) => {
+  savedListeners.add(fn);
+  return () => savedListeners.delete(fn);
+};
+export const saveSavedDishes = async (list) => {
+  await write(KEYS.savedDishes, list);
+  savedListeners.forEach((fn) => fn(list));
+};
+/** Toggle a dish in the saved list; resolves true when it was added, false when removed. */
+export async function toggleSavedDish(d) {
+  const list = await loadSavedDishes();
+  if (list.some((x) => x.id === d.id)) {
+    await saveSavedDishes(list.filter((x) => x.id !== d.id));
+    return false;
+  }
+  const { id, name, price, original_price, platform, restaurant_name, restaurant_url, image_url, category, kind } = d;
+  await saveSavedDishes([{ id, name, price, original_price: original_price ?? null, platform, restaurant_name, restaurant_url, image_url: image_url || null, category: category || null, kind: kind || "main", savedAt: new Date().toISOString() }, ...list]);
+  return true;
+}
+/** Restaurant orders you logged: { id, date, store (platform), note (restaurant), items: [{ name, qty, price }], total }. */
+export const loadFoodOrders = () => read(KEYS.foodOrders, []);
+export const saveFoodOrders = (orders) => write(KEYS.foodOrders, orders);
+
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 
 export const loadRecent = () => read(KEYS.recent, []);
