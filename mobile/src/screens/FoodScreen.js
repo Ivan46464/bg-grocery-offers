@@ -16,10 +16,11 @@ import { ActivityIndicator, FlatList, Image, Keyboard, Linking, Modal, Pressable
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFoodDeals, getFoodNearby, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
+import BoltConnect, { BOLT_HOME } from "../components/BoltConnect";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS } from "../config";
-import { loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
+import { clearBoltDeals, loadBoltDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
 import { colors, money, radius, shadow } from "../theme";
 
 export const PLATFORMS = {
@@ -109,6 +110,8 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   const [location, setLocation] = useState(null); // { label, lat, lng } | null
   const [nearby, setNearby] = useState(null); // /api/food/nearby for `location`
   const [locPicker, setLocPicker] = useState(false);
+  const [boltOpen, setBoltOpen] = useState(false);
+  const [boltDeals, setBoltDeals] = useState(null); // captured from the user's own Bolt session
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -122,6 +125,7 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   useEffect(() => {
     getFoodStatus().then(setStatus).catch(() => {});
     loadFoodLocation().then((l) => l && setLocation(l));
+    loadBoltDeals().then((d) => d && setBoltDeals(d));
   }, []);
 
   // live delivery info for the chosen point (cached 15 min on the server)
@@ -287,7 +291,19 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
     );
   else if (loading && restaurants.length === 0 && dishes.length === 0) body = <EmptyState loading title={q ? `Търсим „${q}“…` : "Зареждаме ресторантите във Варна…"} />;
 
-  const data = target === "restaurants" ? visibleRestaurants.map((g) => ({ type: "group", g })) : visibleDishes.map((d) => ({ type: "dish", d }));
+  // your own Bolt deals (signed-in session) sit on top of the public deals list
+  const showBolt = target === "deals" && (!platform || platform === "Bolt");
+  const boltRows = showBolt && boltDeals
+    ? [
+        ...(boltDeals.dishes || []).filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.restaurant || "").toLowerCase().includes(q.toLowerCase())).map((d) => ({ type: "boltdish", d })),
+        ...(boltDeals.providers || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase())).map((p) => ({ type: "boltprov", p })),
+      ]
+    : [];
+  const data = [
+    ...(showBolt ? [{ type: "bolt" }] : []),
+    ...boltRows,
+    ...(target === "restaurants" ? visibleRestaurants.map((g) => ({ type: "group", g })) : visibleDishes.map((d) => ({ type: "dish", d }))),
+  ];
 
   return (
     <View style={{ flex: 1 }}>
@@ -295,7 +311,7 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       {body || (
         <FlatList
           data={data}
-          keyExtractor={(it) => (it.type === "dish" ? `d${it.d.id}` : `g${it.g.group_key}`)}
+          keyExtractor={(it) => (it.type === "dish" ? `d${it.d.id}` : it.type === "group" ? `g${it.g.group_key}` : it.type === "boltdish" ? `bd${it.d.id}` : it.type === "boltprov" ? `bp${it.p.id}` : "bolt")}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
@@ -307,12 +323,15 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
           }
           ListEmptyComponent={
             loading ? null : target === "deals" ? (
-              <EmptyState icon="pricetag-outline" title="Няма намаления тук" subtitle={platform === "Bolt" ? "Bolt показва отстъпки само на влезли потребители (Bolt Plus / лични кампании) - без вход няма публични." : "Смени платформата или категорията."} />
+              <EmptyState icon="pricetag-outline" title="Няма публични намаления тук" subtitle={platform === "Bolt" ? "Bolt показва отстъпки само на влезли потребители - влез с профила си от картата горе." : "Смени платформата или категорията."} />
             ) : (
               <EmptyState icon="restaurant-outline" title="Нищо намерено" subtitle={location ? `Няма такива ресторанти, които доставят до ${location.label}.` : "Опитай друга дума или категория."} />
             )
           }
           renderItem={({ item }) => {
+            if (item.type === "bolt") return <BoltCard deals={boltDeals} onOpen={() => setBoltOpen(true)} onClear={() => { clearBoltDeals(); setBoltDeals(null); }} />;
+            if (item.type === "boltprov") return <BoltProviderRow p={item.p} />;
+            if (item.type === "boltdish") return <BoltDishRow d={item.d} />;
             if (item.type === "dish") return <DishRow d={item.d} saved={saved} at={atPoint(nearby, item.d.platform, item.d.restaurant_external_id)} onOpen={() => open(item.d.restaurant_url)} onCompare={() => setCompare(item.d)} />;
             return <RestaurantCard g={item.g} nearby={nearby} onPress={() => setSelected(item.g.group_key)} />;
           }}
@@ -321,7 +340,98 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} saved={saved} nearby={nearby} />
       <CompareSheet dish={compare} onClose={() => setCompare(null)} saved={saved} />
       <LocationSheet visible={locPicker} current={location} onClose={() => setLocPicker(false)} onPick={pickLocation} />
+      <BoltConnect visible={boltOpen} onClose={() => setBoltOpen(false)} onDeals={setBoltDeals} />
     </View>
+  );
+}
+
+/** Card at the top of Промоции: sign in to Bolt inside the app, see what it found. */
+function BoltCard({ deals, onOpen, onClear }) {
+  const n = deals ? (deals.providers || []).length + (deals.dishes || []).length : 0;
+  const when = deals?.capturedAt ? new Date(deals.capturedAt) : null;
+  return (
+    <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 8, borderWidth: 1, borderColor: PLATFORMS.Bolt.bg }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <PlatformBadge platform="Bolt" size="lg" />
+        <Text style={[styles.name, { flex: 1 }]}>Твоите отстъпки в Bolt</Text>
+      </View>
+      <Text style={styles.meta}>
+        {deals
+          ? `${n ? `Намерени ${n} промо${when ? ` · ${String(when.getDate()).padStart(2, "0")}.${String(when.getMonth() + 1).padStart(2, "0")} ${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}` : ""}` : "Влязъл си, но Bolt не показа отстъпки при последното отваряне."} Отвори пак, за да обновиш.`
+          : "Bolt показва отстъпките си (Bolt Plus, лични кампании) само на влезли потребители. Влез с твоя профил тук - паролата остава в Bolt, ние виждаме само отстъпките."}
+      </Text>
+      <View style={{ flexDirection: "row", gap: 8 }}>
+        <Pressable onPress={onOpen} style={[styles.orderBtn, { flex: 1, alignItems: "center", paddingVertical: 10, backgroundColor: PLATFORMS.Bolt.bg }]}>
+          <Text style={[styles.orderText, { color: PLATFORMS.Bolt.fg, fontSize: 13 }]}>{deals ? "Обнови от Bolt" : "Влез в Bolt"}</Text>
+        </Pressable>
+        {deals ? (
+          <Pressable onPress={onClear} style={[styles.orderBtn, { paddingVertical: 10, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }]}>
+            <Text style={[styles.orderText, { color: colors.ink2, fontSize: 13 }]}>Изчисти</Text>
+          </Pressable>
+        ) : null}
+      </View>
+    </View>
+  );
+}
+
+function BoltProviderRow({ p }) {
+  const url = `${BOLT_HOME}/p/${p.id}-${p.slug || ""}`;
+  return (
+    <Pressable onPress={() => open(url)} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
+      <View style={styles.thumb}>{p.image_url ? <Image source={{ uri: p.image_url }} style={styles.img} /> : <Ionicons name="restaurant-outline" size={22} color={colors.ink3} />}</View>
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={styles.name} numberOfLines={1}>
+          {p.name}
+        </Text>
+        <Text style={[styles.meta, { color: colors.success, fontWeight: "700" }]} numberOfLines={2}>
+          {p.label || "промоция"}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
+          <PlatformBadge platform="Bolt" />
+          <Text style={styles.meta}>
+            {p.minutes ? `${p.minutes} мин` : ""}
+            {p.fee != null ? ` · доставка ${money(p.fee)}` : ""}
+          </Text>
+        </View>
+      </View>
+      <View style={styles.orderBtn}>
+        <Text style={styles.orderText}>Поръчай</Text>
+      </View>
+    </Pressable>
+  );
+}
+
+function BoltDishRow({ d }) {
+  const url = `${BOLT_HOME}/p/${d.provider_id}`;
+  const pct = d.original && d.price ? Math.round((1 - d.price / d.original) * 100) : null;
+  return (
+    <Pressable onPress={() => open(url)} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
+      <View style={styles.thumb}>{d.image_url ? <Image source={{ uri: d.image_url }} style={styles.img} /> : <Ionicons name="fast-food-outline" size={22} color={colors.ink3} />}</View>
+      <View style={{ flex: 1, gap: 3 }}>
+        <Text style={styles.name} numberOfLines={2}>
+          {d.name}
+        </Text>
+        <Text style={styles.meta} numberOfLines={1}>
+          {d.restaurant || d.category || ""}
+        </Text>
+        <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <PlatformBadge platform="Bolt" />
+          {pct ? (
+            <View style={styles.discount}>
+              <Text style={styles.discountText}>-{pct}%</Text>
+            </View>
+          ) : null}
+          {d.promo ? <Text style={[styles.kindTag, { color: colors.success }]}>{d.promo}</Text> : null}
+        </View>
+      </View>
+      <View style={{ alignItems: "flex-end", gap: 6 }}>
+        <Text style={[styles.price, { color: colors.success }]}>{d.price != null ? money(d.price) : d.price_str}</Text>
+        {d.original != null && <Text style={styles.old}>{money(d.original)}</Text>}
+        <View style={styles.orderBtn}>
+          <Text style={styles.orderText}>Поръчай</Text>
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -522,10 +632,11 @@ function RestaurantSheet({ groupKey, onClose, platform, saved, nearby }) {
     .map((d) => (platform ? { ...d, offers: d.offers.filter((o) => o.platform === platform) } : d))
     .filter((d) => d.offers.length && (!cat || d.offers.some((o) => o.category === cat)) && (!kind || d.offers.some((o) => (o.kind || "main") === kind)));
   const kindsPresent = new Set((detail?.dishes || []).flatMap((d) => d.offers.map((o) => o.kind || "main")));
+  const listings = detail?.group ? detail.group.listings.filter((l) => !platform || l.platform === platform) : [];
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose} />
-      <View style={[styles.sheet, { paddingBottom: insets.bottom + 12 }]}>
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 8 }]}>
         <View style={styles.handle} />
         {!detail ? (
           <EmptyState loading title="Зареждаме менюто…" />
@@ -533,68 +644,83 @@ function RestaurantSheet({ groupKey, onClose, platform, saved, nearby }) {
           <EmptyState icon="warning-outline" title="Не успяхме да заредим менюто" />
         ) : (
           <>
-            <Text style={styles.sheetTitle}>{detail.group.name}</Text>
-            {(detail.group.cuisines || []).length ? <Text style={[styles.dishDesc, { marginBottom: 6 }]}>{detail.group.cuisines.map((c) => CUISINE_LABEL[c] || c).join("  ")}</Text> : null}
-            <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-              {detail.group.listings
-                .filter((l) => !platform || l.platform === platform)
-                .map((l) => {
-                  const at = atPoint(nearby, l.platform, l.external_id);
-                  const no = at && !at.delivers;
-                  return (
-                    <Pressable key={`${l.platform}-${l.id}`} onPress={() => open(l.url)} style={[styles.platformBtn, no && { opacity: 0.5 }]}>
-                      <PlatformBadge platform={l.platform} size="lg" />
-                      <Text style={styles.platformMeta}>
-                        {l.rating ? `★ ${l.rating}` : ""}
-                        {no ? " · не доставя до теб" : deliveryText(at, l.delivery_minutes, l.delivery_fee)}
-                      </Text>
-                      <Ionicons name="open-outline" size={14} color={colors.ink2} />
-                    </Pressable>
-                  );
-                })}
+            <View style={{ flexDirection: "row", alignItems: "flex-start", gap: 8 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.sheetTitle} numberOfLines={2}>
+                  {detail.group.name}
+                </Text>
+                {(detail.group.cuisines || []).length ? <Text style={styles.dishDesc}>{detail.group.cuisines.map((c) => CUISINE_LABEL[c] || c).join("  ")}</Text> : null}
+              </View>
+              <Pressable onPress={onClose} hitSlop={10} style={styles.closeBtn}>
+                <Ionicons name="close" size={18} color={colors.ink2} />
+              </Pressable>
             </View>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 8 }}>
-              {KINDS.filter((k) => !k.key || kindsPresent.has(k.key)).map((k) => (
-                <Pressable key={String(k.key)} onPress={() => setKind(k.key)} style={[styles.catChip, kind === k.key && styles.catChipActive]}>
-                  <Text style={[styles.catText, kind === k.key && { color: "#fff" }]}>{k.label}</Text>
-                </Pressable>
-              ))}
-            </ScrollView>
-            {detail.categories.length > 1 && (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 8 }}>
-                {[null, ...detail.categories].map((c) => (
-                  <Pressable key={String(c)} onPress={() => setCat(c)} style={[styles.catChip, cat === c && styles.catChipActive]}>
-                    <Text style={[styles.catText, cat === c && { color: "#fff" }]}>{c || "Всички секции"}</Text>
+            {/* one row per platform: rating, delivery at your point, open in the app */}
+            <View style={styles.listings}>
+              {listings.map((l) => {
+                const at = atPoint(nearby, l.platform, l.external_id);
+                const no = at && !at.delivers;
+                return (
+                  <Pressable key={`${l.platform}-${l.id}`} onPress={() => open(l.url)} style={[styles.listingRow, no && { opacity: 0.5 }]}>
+                    <PlatformBadge platform={l.platform} size="lg" />
+                    <Text style={[styles.platformMeta, { flex: 1 }]} numberOfLines={1}>
+                      {l.rating ? `★ ${l.rating}` : ""}
+                      {no ? " · не доставя до теб" : deliveryText(at, l.delivery_minutes, l.delivery_fee)}
+                    </Text>
+                    <Text style={styles.openText}>Отвори</Text>
+                    <Ionicons name="open-outline" size={14} color={colors.primary} />
+                  </Pressable>
+                );
+              })}
+            </View>
+            <View style={styles.chipBlock}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flexGrow: 0 }}>
+                {KINDS.filter((k) => !k.key || kindsPresent.has(k.key)).map((k) => (
+                  <Pressable key={String(k.key)} onPress={() => setKind(k.key)} style={[styles.catChip, kind === k.key && styles.catChipActive]}>
+                    <Text style={[styles.catText, kind === k.key && { color: "#fff" }]}>{k.label}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
-            )}
+              {detail.categories.length > 1 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} style={{ flexGrow: 0, marginTop: 6 }}>
+                  {[null, ...detail.categories].map((c) => (
+                    <Pressable key={String(c)} onPress={() => setCat(c)} style={[styles.catChip, styles.catChipSoft, cat === c && styles.catChipActive]}>
+                      <Text style={[styles.catText, cat === c && { color: "#fff" }]}>{c || "Всички секции"}</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
             <FlatList
+              style={{ flex: 1 }}
               data={dishes}
               keyExtractor={(d, i) => d.name + i}
+              ListHeaderComponent={<Text style={[styles.label, { marginTop: 8, marginBottom: 4 }]}>{dishes.length} ястия{listings.length > 1 ? " · цена във всяка платформа, най-евтината в зелено" : ""}</Text>}
               ListEmptyComponent={<EmptyState icon="fast-food-outline" title="Нищо в тази категория" />}
               renderItem={({ item: d }) => (
-                <View style={styles.dishRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.dishName}>{d.name}</Text>
-                    {d.offers[0].description ? (
-                      <Text style={styles.dishDesc} numberOfLines={2}>
-                        {d.offers[0].description}
-                      </Text>
-                    ) : null}
-                  </View>
-                  <View style={{ alignItems: "flex-end", gap: 4 }}>
-                    {d.offers.map((o) => (
-                      <View key={o.id} style={styles.priceLine}>
-                        <SaveDishButton dish={o} saved={saved} size={16} />
-                        <Pressable onPress={() => open(o.restaurant_url)} style={styles.priceLine}>
-                          <PlatformBadge platform={o.platform} />
-                          {o.discount_pct ? <DiscountTag d={o} /> : null}
-                          <Text style={[styles.dishPrice, o.platform === d.cheapest_platform && d.offers.length > 1 && { color: colors.success }]}>{money(o.price)}</Text>
-                        </Pressable>
-                      </View>
-                    ))}
-                    {d.offers.length > 1 && d.savings > 0 && <Text style={styles.save}>-{money(d.savings)} в {d.cheapest_platform}</Text>}
+                <View style={styles.menuRow}>
+                  <Text style={styles.dishName}>{d.name}</Text>
+                  {d.offers[0].description ? (
+                    <Text style={styles.dishDesc} numberOfLines={2}>
+                      {d.offers[0].description}
+                    </Text>
+                  ) : null}
+                  <View style={styles.offerWrap}>
+                    {d.offers.map((o) => {
+                      const best = o.platform === d.cheapest_platform && d.offers.length > 1;
+                      return (
+                        <View key={o.id} style={[styles.offerPill, best && styles.offerPillBest]}>
+                          <Pressable onPress={() => open(o.restaurant_url)} style={styles.priceLine}>
+                            <PlatformBadge platform={o.platform} />
+                            {o.discount_pct ? <DiscountTag d={o} /> : null}
+                            <Text style={[styles.dishPrice, best && { color: colors.success }]}>{money(o.price)}</Text>
+                            {o.original_price != null ? <Text style={styles.old}>{money(o.original_price)}</Text> : null}
+                          </Pressable>
+                          <SaveDishButton dish={o} saved={saved} size={16} />
+                        </View>
+                      );
+                    })}
+                    {d.offers.length > 1 && d.savings > 0 ? <Text style={styles.save}>спестяваш {money(d.savings)} в {d.cheapest_platform}</Text> : null}
                   </View>
                 </View>
               )}
@@ -648,8 +774,17 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8, height: "88%" },
   handle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 12 },
   sheetTitle: { fontSize: 20, fontWeight: "800", color: colors.ink, marginBottom: 6 },
-  platformBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  closeBtn: { width: 32, height: 32, borderRadius: 16, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center" },
+  listings: { gap: 6, marginTop: 8 },
+  listingRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
   platformMeta: { fontSize: 12, color: colors.ink2 },
+  openText: { fontSize: 12, fontWeight: "700", color: colors.primary },
+  chipBlock: { marginTop: 8, paddingBottom: 6, borderBottomWidth: 1, borderBottomColor: colors.border },
+  catChipSoft: { backgroundColor: colors.surface },
+  menuRow: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border, gap: 4 },
+  offerWrap: { flexDirection: "row", flexWrap: "wrap", gap: 6, alignItems: "center", marginTop: 4 },
+  offerPill: { flexDirection: "row", alignItems: "center", gap: 6, paddingLeft: 8, paddingRight: 4, paddingVertical: 5, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  offerPillBest: { backgroundColor: colors.successSoft, borderColor: colors.successSoft },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
   catChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   catText: { fontSize: 12, fontWeight: "700", color: colors.ink2 },

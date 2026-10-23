@@ -13,6 +13,7 @@ const KEYS = {
   savedDishes: "food.saved.v1",
   foodOrders: "food.orders.v1",
   foodLocation: "food.location.v1",
+  boltDeals: "bolt.deals.v1",
 };
 
 async function read(key, fallback) {
@@ -93,6 +94,10 @@ export async function toggleSavedDish(d) {
 }
 /** Where restaurant orders go: { label, lat, lng } or null (delivery fees / availability depend on it). */
 export const loadFoodLocation = () => read(KEYS.foodLocation, null);
+/** Deals captured while the user was signed in to Bolt inside the app: { capturedAt, authed, providers: [...], dishes: [...] } */
+export const loadBoltDeals = () => read(KEYS.boltDeals, null);
+export const saveBoltDeals = (d) => write(KEYS.boltDeals, d);
+export const clearBoltDeals = () => write(KEYS.boltDeals, null);
 export const saveFoodLocation = (loc) => write(KEYS.foodLocation, loc);
 
 /** Restaurant orders you logged: { id, date, store (platform), note (restaurant), items: [{ name, qty, price }], total }. */
