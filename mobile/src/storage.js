@@ -15,6 +15,8 @@ const KEYS = {
   foodLocation: "food.location.v1",
   accountDeals: "accounts.deals.v1",
   accountSessions: "accounts.sessions.v1",
+  crash: "crash.last.v1",
+  crashPending: "crash.pending.v1",
 };
 
 async function read(key, fallback) {
@@ -115,6 +117,27 @@ export const saveAccountSession = async (platform, sess) => write(KEYS.accountSe
 /** Restaurant orders you logged: { id, date, store (platform), note (restaurant), items: [{ name, qty, price }], total }. */
 export const loadFoodOrders = () => read(KEYS.foodOrders, []);
 export const saveFoodOrders = (orders) => write(KEYS.foodOrders, orders);
+
+/** Last crash (message, stack, where, at) and a flag that the previous run died, so the next start can avoid the same path. */
+export const loadCrash = () => read(KEYS.crash, null);
+export const saveCrash = async (c) => {
+  await write(KEYS.crash, c);
+  await write(KEYS.crashPending, true);
+};
+export const clearCrash = () => write(KEYS.crash, null);
+/** true once if the previous run crashed; clears the flag. */
+export const takeCrashPending = async () => {
+  const v = await read(KEYS.crashPending, false);
+  if (v) await write(KEYS.crashPending, false);
+  return !!v;
+};
+/** Drop the settings a crash is most likely tied to: delivery point, connected accounts, captured deals. */
+export const resetRiskySettings = async () => {
+  await write(KEYS.foodLocation, null);
+  await write(KEYS.accountSessions, {});
+  await write(KEYS.accountDeals, {});
+  await write(KEYS.crashPending, false);
+};
 
 export const newId = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
 

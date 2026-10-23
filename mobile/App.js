@@ -14,12 +14,13 @@ import { SafeAreaProvider, useSafeAreaInsets } from "react-native-safe-area-cont
 import { Ionicons } from "@expo/vector-icons";
 import * as Notifications from "expo-notifications";
 
+import ErrorBoundary from "./src/components/ErrorBoundary";
 import { ToastProvider } from "./src/components/Toast";
 import CartScreen from "./src/screens/CartScreen";
 import ScannerScreen from "./src/screens/ScannerScreen";
 import SearchScreen from "./src/screens/SearchScreen";
 import WatchScreen from "./src/screens/WatchScreen";
-import { loadCart, onCartChange } from "./src/storage";
+import { loadCart, onCartChange, saveCrash } from "./src/storage";
 import { colors } from "./src/theme";
 
 // Show notifications even while the app is in the foreground.
@@ -28,6 +29,18 @@ Notifications.setNotificationHandler({
 });
 
 const Tab = createBottomTabNavigator();
+
+// Fatal JS errors outside React rendering (event handlers, promises) used to close the app silently; keep the message for the next start.
+if (global.ErrorUtils && !global.__bgCrashHook) {
+  global.__bgCrashHook = true;
+  const prev = global.ErrorUtils.getGlobalHandler?.();
+  global.ErrorUtils.setGlobalHandler((e, isFatal) => {
+    try {
+      saveCrash({ message: String(e?.message || e), stack: String(e?.stack || "").slice(0, 1500), at: new Date().toISOString(), where: isFatal ? "fatal" : "non-fatal" });
+    } catch {}
+    prev?.(e, isFatal);
+  });
+}
 
 const navTheme = { ...DefaultTheme, colors: { ...DefaultTheme.colors, background: colors.bg, card: colors.surface, border: colors.border, primary: colors.primary } };
 
@@ -83,9 +96,11 @@ export default function App() {
     <SafeAreaProvider>
       <StatusBar style="light" translucent backgroundColor="transparent" />
       <ToastProvider>
+        <ErrorBoundary name="приложението">
         <NavigationContainer theme={navTheme}>
           <Tabs />
         </NavigationContainer>
+        </ErrorBoundary>
       </ToastProvider>
     </SafeAreaProvider>
   );

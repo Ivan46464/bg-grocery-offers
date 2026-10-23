@@ -21,7 +21,7 @@ import { dueAccounts, refreshAccount } from "../accounts";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS } from "../config";
-import { clearAccountDeals, loadAccountSessions, loadAllAccountDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
+import { clearAccountDeals, clearCrash, loadAccountSessions, loadAllAccountDeals, loadCrash, loadFoodLocation, takeCrashPending, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
 import { colors, cuisineColors, money, radius, shadow, targetColors } from "../theme";
 
 export const PLATFORMS = {
@@ -116,6 +116,7 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   const [refreshing, setRefreshing] = useState([]); // platforms being refreshed right now
   const [hidden, setHidden] = useState([]); // platforms refreshed through an invisible page (no replayable session yet)
   const [sessions, setSessions] = useState({});
+  const [crash, setCrash] = useState(null); // last crash record, shown once so it can be reported
   const refreshedRef = useRef(new Set());
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
@@ -129,7 +130,18 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
 
   useEffect(() => {
     getFoodStatus().then(setStatus).catch(() => {});
-    loadFoodLocation().then((l) => l && setLocation(l));
+    (async () => {
+      // if the previous run died, start without the delivery point (the most likely culprit) and show what happened
+      const died = await takeCrashPending();
+      const c = await loadCrash();
+      if (c) setCrash(c);
+      if (died) {
+        saveFoodLocation(null);
+      } else {
+        const l = await loadFoodLocation();
+        if (l) setLocation(l);
+      }
+    })();
     loadAllAccountDeals().then((a) => a && setAccounts(a));
     loadAccountSessions().then((ss) => ss && setSessions(ss));
   }, []);
@@ -365,6 +377,17 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   return (
     <View style={{ flex: 1 }}>
       {toolbar}
+      {crash ? (
+        <View style={styles.crashNote}>
+          <Ionicons name="bug-outline" size={16} color={colors.danger} />
+          <Text style={styles.crashText} numberOfLines={3}>
+            Последния път приложението се затвори ({crash.where}): {crash.message}
+          </Text>
+          <Pressable onPress={() => { clearCrash(); setCrash(null); }} hitSlop={8}>
+            <Ionicons name="close" size={18} color={colors.ink2} />
+          </Pressable>
+        </View>
+      ) : null}
       {body || (
         <FlatList
           data={data}
@@ -887,6 +910,8 @@ function RestaurantSheet({ groupKey, onClose, platform, saved, nearby }) {
 
 const styles = StyleSheet.create({
   toolbar: { paddingTop: 8, paddingBottom: 6, gap: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  crashNote: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 12, paddingVertical: 8, backgroundColor: colors.dangerSoft },
+  crashText: { flex: 1, fontSize: 11, color: colors.danger },
   targetRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16 },
   targetBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
   targetBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },

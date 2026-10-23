@@ -15,6 +15,7 @@ import SearchBar from "../components/SearchBar";
 import Segmented from "../components/Segmented";
 import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
+import ErrorBoundary from "../components/ErrorBoundary";
 import FoodScreen from "./FoodScreen";
 import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
@@ -206,7 +207,9 @@ export default function SearchScreen({ navigation }) {
 
       {mode === "food" ? (
         <View style={styles.content}>
-          <FoodScreen query={query} target={foodTarget} onTarget={(t, q) => { setFoodTarget(t); setQuery(q || ""); }} />
+          <ErrorBoundary name="Ресторанти">
+            <FoodScreen query={query} target={foodTarget} onTarget={(t, q) => { setFoodTarget(t); setQuery(q || ""); }} />
+          </ErrorBoundary>
         </View>
       ) : (
         <>
