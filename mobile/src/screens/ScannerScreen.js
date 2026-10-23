@@ -65,7 +65,7 @@ export default function ScannerScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Скенер" subtitle="Сканирай баркод в магазина - по-евтино ли е другаде?" />
+      <ScreenHeader title="Скенер" color="#2563EB" subtitle="Сканирай баркод в магазина - по-евтино ли е другаде?" />
 
       <View style={styles.cameraWrap}>
         {!permission ? null : !permission.granted ? (

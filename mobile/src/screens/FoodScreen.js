@@ -16,12 +16,12 @@ import { ActivityIndicator, FlatList, Image, Keyboard, Linking, Modal, Pressable
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFoodDeals, getFoodNearby, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
-import BoltConnect, { BOLT_HOME } from "../components/BoltConnect";
+import AccountConnect, { ACCOUNTS, ACCOUNT_ORDER, HiddenRefresh } from "../components/AccountConnect";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS } from "../config";
-import { clearBoltDeals, loadBoltDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
-import { colors, money, radius, shadow } from "../theme";
+import { clearAccountDeals, loadAllAccountDeals, loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
+import { colors, cuisineColors, money, radius, shadow, targetColors } from "../theme";
 
 export const PLATFORMS = {
   Wolt: { bg: "#009DE0", fg: "#FFFFFF" },
@@ -110,8 +110,10 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   const [location, setLocation] = useState(null); // { label, lat, lng } | null
   const [nearby, setNearby] = useState(null); // /api/food/nearby for `location`
   const [locPicker, setLocPicker] = useState(false);
-  const [boltOpen, setBoltOpen] = useState(false);
-  const [boltDeals, setBoltDeals] = useState(null); // captured from the user's own Bolt session
+  const [connect, setConnect] = useState(null); // platform whose sign-in sheet is open
+  const [accounts, setAccounts] = useState({}); // { Wolt: {...}, Glovo: {...}, Bolt: {...} } captured from the user's own sessions
+  const [refreshing, setRefreshing] = useState([]); // platforms being refreshed invisibly
+  const refreshedRef = useRef(new Set());
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -125,8 +127,19 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   useEffect(() => {
     getFoodStatus().then(setStatus).catch(() => {});
     loadFoodLocation().then((l) => l && setLocation(l));
-    loadBoltDeals().then((d) => d && setBoltDeals(d));
+    loadAllAccountDeals().then((a) => a && setAccounts(a));
   }, []);
+
+  // connected platforms refresh by themselves (invisible WebView, cookies kept) when Промоции opens, at most once per app session per platform
+  useEffect(() => {
+    if (target !== "deals") return;
+    const due = ACCOUNT_ORDER.filter((p) => accounts[p]?.authed && !refreshedRef.current.has(p));
+    if (!due.length) return;
+    due.forEach((p) => refreshedRef.current.add(p));
+    setRefreshing((r) => [...new Set([...r, ...due])]);
+  }, [target, accounts]);
+  const onAccountUpdate = useCallback((p, data) => setAccounts((a) => ({ ...a, [p]: data })), []);
+  const onRefreshDone = useCallback((p) => setRefreshing((r) => r.filter((x) => x !== p)), []);
 
   // live delivery info for the chosen point (cached 15 min on the server)
   useEffect(() => {
@@ -219,8 +232,8 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
         {targets.map((t) => {
           const active = target === t.key;
           return (
-            <Pressable key={t.key} onPress={() => onTarget?.(t.key)} style={[styles.targetBtn, active && styles.targetBtnActive]}>
-              <Ionicons name={active ? t.icon : `${t.icon}-outline`} size={14} color={active ? "#fff" : colors.ink2} />
+            <Pressable key={t.key} onPress={() => onTarget?.(t.key)} style={[styles.targetBtn, active && { backgroundColor: targetColors[t.key], borderColor: targetColors[t.key] }]}>
+              <Ionicons name={active ? t.icon : `${t.icon}-outline`} size={14} color={active ? "#fff" : targetColors[t.key]} />
               <Text style={[styles.targetText, active && { color: "#fff" }]} numberOfLines={1}>
                 {t.label}
               </Text>
@@ -248,9 +261,10 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
         {[[null, "Всички", "🍽️"], ...CUISINES.filter(([k]) => !status?.cuisines || status.cuisines[k])].map(([k, label, emoji]) => {
           const active = cuisine === k;
+          const cc = k ? cuisineColors[k] : null;
           return (
-            <Pressable key={String(k)} onPress={() => setCuisine(active && k ? null : k)} style={[styles.chip, active && styles.chipActive]}>
-              <Text style={[styles.chipText, active && { color: "#fff" }]}>
+            <Pressable key={String(k)} onPress={() => setCuisine(active && k ? null : k)} style={[styles.chip, cc && { backgroundColor: cc.bg, borderColor: cc.bg }, active && (cc ? { backgroundColor: cc.ink, borderColor: cc.ink } : styles.chipActive)]}>
+              <Text style={[styles.chipText, cc && { color: cc.ink }, active && { color: "#fff" }]}>
                 {emoji} {label}
               </Text>
             </Pressable>
@@ -291,17 +305,22 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
     );
   else if (loading && restaurants.length === 0 && dishes.length === 0) body = <EmptyState loading title={q ? `Търсим „${q}“…` : "Зареждаме ресторантите във Варна…"} />;
 
-  // your own Bolt deals (signed-in session) sit on top of the public deals list
-  const showBolt = target === "deals" && (!platform || platform === "Bolt");
-  const boltRows = showBolt && boltDeals
-    ? [
-        ...(boltDeals.dishes || []).filter((d) => !q || d.name.toLowerCase().includes(q.toLowerCase()) || (d.restaurant || "").toLowerCase().includes(q.toLowerCase())).map((d) => ({ type: "boltdish", d })),
-        ...(boltDeals.providers || []).filter((p) => !q || p.name.toLowerCase().includes(q.toLowerCase())).map((p) => ({ type: "boltprov", p })),
-      ]
+  // your own deals (signed-in sessions) sit on top of the public deals list
+  const showAccounts = target === "deals";
+  const ql = q.toLowerCase();
+  const accountRows = showAccounts
+    ? ACCOUNT_ORDER.filter((p) => !platform || platform === p).flatMap((p) => {
+        const rec = accounts[p];
+        if (!rec) return [];
+        return [
+          ...(rec.dishes || []).filter((d) => !ql || d.name.toLowerCase().includes(ql) || (d.restaurant || "").toLowerCase().includes(ql)).map((d) => ({ type: "accdish", p, d })),
+          ...(rec.providers || []).filter((x) => !ql || x.name.toLowerCase().includes(ql)).map((x) => ({ type: "accprov", p, x })),
+        ];
+      })
     : [];
   const data = [
-    ...(showBolt ? [{ type: "bolt" }] : []),
-    ...boltRows,
+    ...(showAccounts ? [{ type: "accounts" }, { type: "analysis" }] : []),
+    ...accountRows,
     ...(target === "restaurants" ? visibleRestaurants.map((g) => ({ type: "group", g })) : visibleDishes.map((d) => ({ type: "dish", d }))),
   ];
 
@@ -311,7 +330,7 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       {body || (
         <FlatList
           data={data}
-          keyExtractor={(it) => (it.type === "dish" ? `d${it.d.id}` : it.type === "group" ? `g${it.g.group_key}` : it.type === "boltdish" ? `bd${it.d.id}` : it.type === "boltprov" ? `bp${it.p.id}` : "bolt")}
+          keyExtractor={(it) => (it.type === "dish" ? `d${it.d.id}` : it.type === "group" ? `g${it.g.group_key}` : it.type === "accdish" ? `ad${it.p}${it.d.id}` : it.type === "accprov" ? `ap${it.p}${it.x.id}` : it.type)}
           contentContainerStyle={styles.list}
           keyboardShouldPersistTaps="handled"
           onScrollBeginDrag={Keyboard.dismiss}
@@ -323,15 +342,26 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
           }
           ListEmptyComponent={
             loading ? null : target === "deals" ? (
-              <EmptyState icon="pricetag-outline" title="Няма публични намаления тук" subtitle={platform === "Bolt" ? "Bolt показва отстъпки само на влезли потребители - влез с профила си от картата горе." : "Смени платформата или категорията."} />
+              <EmptyState icon="pricetag-outline" title="Няма публични намаления тук" subtitle="Свържи профила си от картата горе - платформите показват най-добрите си отстъпки само на влезли потребители." />
             ) : (
               <EmptyState icon="restaurant-outline" title="Нищо намерено" subtitle={location ? `Няма такива ресторанти, които доставят до ${location.label}.` : "Опитай друга дума или категория."} />
             )
           }
           renderItem={({ item }) => {
-            if (item.type === "bolt") return <BoltCard deals={boltDeals} onOpen={() => setBoltOpen(true)} onClear={() => { clearBoltDeals(); setBoltDeals(null); }} />;
-            if (item.type === "boltprov") return <BoltProviderRow p={item.p} />;
-            if (item.type === "boltdish") return <BoltDishRow d={item.d} />;
+            if (item.type === "accounts")
+              return (
+                <AccountsCard
+                  accounts={accounts}
+                  refreshing={refreshing}
+                  platform={platform}
+                  onConnect={setConnect}
+                  onRefresh={(p) => { refreshedRef.current.add(p); setRefreshing((r) => [...new Set([...r, p])]); }}
+                  onClear={async (p) => { await clearAccountDeals(p); setAccounts((a) => { const n = { ...a }; delete n[p]; return n; }); }}
+                />
+              );
+            if (item.type === "analysis") return <AnalysisCard accounts={accounts} deals={visibleDishes} nearby={nearby} location={location} platform={platform} />;
+            if (item.type === "accprov") return <AccountProviderRow platform={item.p} p={item.x} />;
+            if (item.type === "accdish") return <AccountDishRow platform={item.p} d={item.d} />;
             if (item.type === "dish") return <DishRow d={item.d} saved={saved} at={atPoint(nearby, item.d.platform, item.d.restaurant_external_id)} onOpen={() => open(item.d.restaurant_url)} onCompare={() => setCompare(item.d)} />;
             return <RestaurantCard g={item.g} nearby={nearby} onPress={() => setSelected(item.g.group_key)} />;
           }}
@@ -340,44 +370,123 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} saved={saved} nearby={nearby} />
       <CompareSheet dish={compare} onClose={() => setCompare(null)} saved={saved} />
       <LocationSheet visible={locPicker} current={location} onClose={() => setLocPicker(false)} onPick={pickLocation} />
-      <BoltConnect visible={boltOpen} onClose={() => setBoltOpen(false)} onDeals={setBoltDeals} />
+      <AccountConnect platform={connect} visible={!!connect} location={location} onClose={() => setConnect(null)} onUpdate={onAccountUpdate} />
+      {refreshing.map((p) => (
+        <HiddenRefresh key={p} platform={p} location={location} onUpdate={onAccountUpdate} onDone={onRefreshDone} />
+      ))}
     </View>
   );
 }
 
-/** Card at the top of Промоции: sign in to Bolt inside the app, see what it found. */
-function BoltCard({ deals, onOpen, onClear }) {
-  const n = deals ? (deals.providers || []).length + (deals.dishes || []).length : 0;
-  const when = deals?.capturedAt ? new Date(deals.capturedAt) : null;
+const fmtWhen = (iso) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${String(d.getDate()).padStart(2, "0")}.${String(d.getMonth() + 1).padStart(2, "0")} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+};
+const orderUrl = (platform, p) => (ACCOUNTS[platform].order || "").replace("{id}", p.id || "").replace("{slug}", p.slug || "");
+
+/** One card per platform: connect / refresh / clear, with what the account sees. */
+function AccountsCard({ accounts, refreshing, platform, onConnect, onRefresh, onClear }) {
   return (
-    <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 8, borderWidth: 1, borderColor: PLATFORMS.Bolt.bg }]}>
+    <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 8 }]}>
       <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <PlatformBadge platform="Bolt" size="lg" />
-        <Text style={[styles.name, { flex: 1 }]}>Твоите отстъпки в Bolt</Text>
+        <Ionicons name="person-circle" size={20} color={targetColors.deals} />
+        <Text style={[styles.name, { flex: 1 }]}>Твоите профили</Text>
       </View>
-      <Text style={styles.meta}>
-        {deals
-          ? `${n ? `Намерени ${n} промо${when ? ` · ${String(when.getDate()).padStart(2, "0")}.${String(when.getMonth() + 1).padStart(2, "0")} ${String(when.getHours()).padStart(2, "0")}:${String(when.getMinutes()).padStart(2, "0")}` : ""}` : "Влязъл си, но Bolt не показа отстъпки при последното отваряне."} Отвори пак, за да обновиш.`
-          : "Bolt показва отстъпките си (Bolt Plus, лични кампании) само на влезли потребители. Влез с твоя профил тук - паролата остава в Bolt, ние виждаме само отстъпките."}
-      </Text>
-      <View style={{ flexDirection: "row", gap: 8 }}>
-        <Pressable onPress={onOpen} style={[styles.orderBtn, { flex: 1, alignItems: "center", paddingVertical: 10, backgroundColor: PLATFORMS.Bolt.bg }]}>
-          <Text style={[styles.orderText, { color: PLATFORMS.Bolt.fg, fontSize: 13 }]}>{deals ? "Обнови от Bolt" : "Влез в Bolt"}</Text>
-        </Pressable>
-        {deals ? (
-          <Pressable onPress={onClear} style={[styles.orderBtn, { paddingVertical: 10, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border }]}>
-            <Text style={[styles.orderText, { color: colors.ink2, fontSize: 13 }]}>Изчисти</Text>
-          </Pressable>
-        ) : null}
-      </View>
+      <Text style={styles.meta}>Платформите показват най-добрите си отстъпки (Wolt+, Glovo Prime, Bolt Plus, лични кампании) само на влезли потребители. Влез веднъж във всяка - после отстъпките се обновяват сами, без да цъкаш.</Text>
+      {ACCOUNT_ORDER.filter((p) => !platform || platform === p).map((p) => {
+        const rec = accounts[p];
+        const n = rec ? (rec.providers || []).length + (rec.dishes || []).length : 0;
+        const busy = refreshing.includes(p);
+        const c = PLATFORMS[p];
+        return (
+          <View key={p} style={[styles.accRow, { borderColor: c.bg }]}>
+            <PlatformBadge platform={p} size="lg" />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.accTitle}>{rec?.authed ? (n ? `${n} промо за теб` : "влязъл · няма промо в момента") : "не е свързан"}</Text>
+              <Text style={styles.meta}>{busy ? "обновяваме…" : rec?.capturedAt ? `обновено ${fmtWhen(rec.capturedAt)}` : "влез, за да виждаш отстъпките си"}</Text>
+            </View>
+            {busy ? <ActivityIndicator size="small" color={c.bg} /> : null}
+            <Pressable onPress={() => (rec?.authed ? onRefresh(p) : onConnect(p))} style={[styles.accBtn, { backgroundColor: c.bg }]}>
+              <Text style={[styles.accBtnText, { color: c.fg }]}>{rec?.authed ? "Обнови" : "Влез"}</Text>
+            </Pressable>
+            {rec ? (
+              <Pressable onPress={() => onClear(p)} hitSlop={8} style={{ padding: 4 }}>
+                <Ionicons name="close-circle-outline" size={20} color={colors.ink3} />
+              </Pressable>
+            ) : null}
+            {rec?.authed ? (
+              <Pressable onPress={() => onConnect(p)} hitSlop={8} style={{ padding: 4 }} accessibilityLabel="Отвори профила">
+                <Ionicons name="open-outline" size={18} color={colors.ink3} />
+              </Pressable>
+            ) : null}
+          </View>
+        );
+      })}
     </View>
   );
 }
 
-function BoltProviderRow({ p }) {
-  const url = `${BOLT_HOME}/p/${p.id}-${p.slug || ""}`;
+/** Short, concrete feedback from everything we know: who has the most / biggest deals, cheapest delivery to you, where you save. */
+function AnalysisCard({ accounts, deals, nearby, location, platform }) {
+  const lines = [];
+  const plats = ACCOUNT_ORDER.filter((p) => !platform || platform === p);
+  // public deals per platform
+  const pub = {};
+  for (const d of deals) {
+    const b = (pub[d.platform] = pub[d.platform] || { n: 0, best: null });
+    b.n += 1;
+    if (!b.best || (d.discount_pct || 0) > (b.best.discount_pct || 0)) b.best = d;
+  }
+  // account deals per platform
+  const acc = {};
+  for (const p of plats) {
+    const rec = accounts[p];
+    if (!rec?.authed) continue;
+    const ds = rec.dishes || [];
+    const best = ds.reduce((a, d) => (d.original && d.price && (!a || 1 - d.price / d.original > 1 - a.price / a.original) ? d : a), null);
+    acc[p] = { n: (rec.providers || []).length + ds.length, best };
+  }
+  const all = plats.map((p) => ({ p, n: (pub[p]?.n || 0) + (acc[p]?.n || 0) })).sort((a, b) => b.n - a.n);
+  if (all[0]?.n) lines.push(`Най-много промоции сега: ${all.map((x) => `${x.p} ${x.n}`).join(" · ")}.`);
+  for (const p of plats) {
+    const b = acc[p]?.best || pub[p]?.best;
+    if (b) {
+      const pct = b.discount_pct || (b.original && b.price ? Math.round((1 - b.price / b.original) * 100) : null);
+      lines.push(`${p}: най-голяма отстъпка ${pct ? `-${pct}% ` : ""}„${b.name.slice(0, 32)}“${b.restaurant_name || b.restaurant ? ` в ${b.restaurant_name || b.restaurant}` : ""} за ${money(b.price)}.`);
+    }
+  }
+  if (nearby && location) {
+    const fees = {};
+    for (const p of ["Wolt", "Bolt"]) {
+      const vals = Object.values(nearby[p] || {}).filter((v) => v.delivers && v.fee != null).map((v) => v.fee);
+      if (vals.length) fees[p] = { avg: vals.reduce((a, b) => a + b, 0) / vals.length, n: vals.length };
+    }
+    const ks = Object.keys(fees);
+    if (ks.length) lines.push(`Доставка до ${location.label}: ${ks.map((p) => `${p} средно ${money(fees[p].avg)} (${fees[p].n} места)`).join(" · ")}${ks.length > 1 ? ` → по-евтино с ${ks.sort((a, b) => fees[a].avg - fees[b].avg)[0]}.` : "."}`);
+  }
+  const missing = plats.filter((p) => !accounts[p]?.authed);
+  if (missing.length) lines.push(`Свържи ${missing.join(", ")} - тогава виждаме и личните ти отстъпки там.`);
+  if (!lines.length) return null;
   return (
-    <Pressable onPress={() => open(url)} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
+    <View style={[styles.card, { flexDirection: "column", alignItems: "stretch", gap: 6, backgroundColor: "#FDF2F8", borderWidth: 1, borderColor: "#FBCFE8" }]}>
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Ionicons name="analytics" size={18} color={targetColors.deals} />
+        <Text style={[styles.name, { flex: 1, color: targetColors.deals }]}>Анализ за теб</Text>
+      </View>
+      {lines.map((l, i) => (
+        <Text key={i} style={[styles.meta, { color: colors.ink2, lineHeight: 17 }]}>
+          • {l}
+        </Text>
+      ))}
+    </View>
+  );
+}
+
+function AccountProviderRow({ platform, p }) {
+  const c = PLATFORMS[platform];
+  return (
+    <Pressable onPress={() => open(orderUrl(platform, p))} style={({ pressed }) => [styles.card, { borderLeftWidth: 4, borderLeftColor: c.bg }, pressed && { opacity: 0.85 }]}>
       <View style={styles.thumb}>{p.image_url ? <Image source={{ uri: p.image_url }} style={styles.img} /> : <Ionicons name="restaurant-outline" size={22} color={colors.ink3} />}</View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={styles.name} numberOfLines={1}>
@@ -387,35 +496,36 @@ function BoltProviderRow({ p }) {
           {p.label || "промоция"}
         </Text>
         <View style={{ flexDirection: "row", gap: 6, alignItems: "center" }}>
-          <PlatformBadge platform="Bolt" />
+          <PlatformBadge platform={platform} />
+          <Text style={styles.kindTag}>от профила ти</Text>
           <Text style={styles.meta}>
             {p.minutes ? `${p.minutes} мин` : ""}
             {p.fee != null ? ` · доставка ${money(p.fee)}` : ""}
           </Text>
         </View>
       </View>
-      <View style={styles.orderBtn}>
-        <Text style={styles.orderText}>Поръчай</Text>
+      <View style={[styles.orderBtn, { backgroundColor: c.bg }]}>
+        <Text style={[styles.orderText, { color: c.fg }]}>Поръчай</Text>
       </View>
     </Pressable>
   );
 }
 
-function BoltDishRow({ d }) {
-  const url = `${BOLT_HOME}/p/${d.provider_id}`;
+function AccountDishRow({ platform, d }) {
+  const c = PLATFORMS[platform];
   const pct = d.original && d.price ? Math.round((1 - d.price / d.original) * 100) : null;
   return (
-    <Pressable onPress={() => open(url)} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
+    <Pressable onPress={() => open(orderUrl(platform, { id: d.provider_id, slug: d.slug || d.provider_id }))} style={({ pressed }) => [styles.card, { borderLeftWidth: 4, borderLeftColor: c.bg }, pressed && { opacity: 0.85 }]}>
       <View style={styles.thumb}>{d.image_url ? <Image source={{ uri: d.image_url }} style={styles.img} /> : <Ionicons name="fast-food-outline" size={22} color={colors.ink3} />}</View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={styles.name} numberOfLines={2}>
           {d.name}
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
-          {d.restaurant || d.category || ""}
+          {d.restaurant || ""}
         </Text>
         <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
-          <PlatformBadge platform="Bolt" />
+          <PlatformBadge platform={platform} />
           {pct ? (
             <View style={styles.discount}>
               <Text style={styles.discountText}>-{pct}%</Text>
@@ -425,10 +535,10 @@ function BoltDishRow({ d }) {
         </View>
       </View>
       <View style={{ alignItems: "flex-end", gap: 6 }}>
-        <Text style={[styles.price, { color: colors.success }]}>{d.price != null ? money(d.price) : d.price_str}</Text>
+        <Text style={[styles.price, { color: colors.success }]}>{money(d.price)}</Text>
         {d.original != null && <Text style={styles.old}>{money(d.original)}</Text>}
-        <View style={styles.orderBtn}>
-          <Text style={styles.orderText}>Поръчай</Text>
+        <View style={[styles.orderBtn, { backgroundColor: c.bg }]}>
+          <Text style={[styles.orderText, { color: c.fg }]}>Поръчай</Text>
         </View>
       </View>
     </Pressable>
@@ -452,7 +562,7 @@ const deliveryText = (at, fallbackMin, fallbackFee) => {
 
 function DishRow({ d, saved, at, onOpen, onCompare }) {
   return (
-    <Pressable onPress={onCompare} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
+    <Pressable onPress={onCompare} style={({ pressed }) => [styles.card, { borderLeftWidth: 4, borderLeftColor: (PLATFORMS[d.platform] || { bg: colors.border }).bg }, pressed && { opacity: 0.85 }]}>
       <View style={styles.thumb}>{d.image_url ? <Image source={{ uri: d.image_url }} style={styles.img} /> : <Ionicons name="fast-food-outline" size={22} color={colors.ink3} />}</View>
       <View style={{ flex: 1, gap: 3 }}>
         <Text style={styles.name} numberOfLines={2}>
@@ -737,6 +847,10 @@ const styles = StyleSheet.create({
   targetRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16 },
   targetBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
   targetBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  accRow: { flexDirection: "row", alignItems: "center", gap: 8, padding: 8, borderRadius: radius.md, borderWidth: 1, backgroundColor: colors.surfaceAlt },
+  accTitle: { fontSize: 13, fontWeight: "700", color: colors.ink },
+  accBtn: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill },
+  accBtnText: { fontSize: 12, fontWeight: "800" },
   targetText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
   chipRow: { gap: 6, paddingHorizontal: 16, alignItems: "center" },
   chip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },

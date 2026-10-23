@@ -10,12 +10,12 @@ import { colors } from "../theme";
  *                     subtitle
  *         [children - e.g. the search bar]
  */
-export default function ScreenHeader({ title, subtitle, icon = "pricetag", right, children }) {
+export default function ScreenHeader({ title, subtitle, icon = "pricetag", color, right, children }) {
   const insets = useSafeAreaInsets();
   return (
     <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
       <View style={styles.row}>
-        <View style={styles.mark}>
+        <View style={[styles.mark, color ? { backgroundColor: color } : null]}>
           <Ionicons name={icon} size={18} color="#fff" />
         </View>
         <View style={{ flex: 1 }}>

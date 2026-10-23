@@ -57,7 +57,7 @@ function Tabs() {
     <Tab.Navigator
       screenOptions={({ route }) => ({
         headerShown: false,
-        tabBarActiveTintColor: colors.primary,
+        tabBarActiveTintColor: { Search: colors.primary, Cart: "#D97706", Scanner: "#2563EB", Watch: "#DB2777" }[route.name] || colors.primary,
         tabBarInactiveTintColor: colors.ink3,
         tabBarLabelStyle: { fontSize: 11, fontWeight: "700", marginBottom: 2 },
         tabBarStyle: {

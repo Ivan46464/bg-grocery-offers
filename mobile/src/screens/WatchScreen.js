@@ -147,7 +147,7 @@ export default function WatchScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Наблюдение" subtitle="Кажи ни кой продукт чакаш да поевтинее" icon="notifications">
+      <ScreenHeader title="Наблюдение" color="#DB2777" subtitle="Кажи ни кой продукт чакаш да поевтинее" icon="notifications">
         <Pressable onPress={() => setPicker(true)} style={({ pressed }) => [styles.addBar, pressed && { opacity: 0.85 }]}>
           <Ionicons name="add-circle" size={22} color={colors.primary} />
           <Text style={styles.addBarText}>Следи продукт…</Text>

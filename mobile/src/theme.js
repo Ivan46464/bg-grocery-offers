@@ -24,6 +24,25 @@ export const colors = {
   headerInk2: "#A3AEC2",
 };
 
+/** Colour per delivery platform (brand) and per cuisine chip (pastel bg + ink). */
+export const platformColors = {
+  Wolt: { bg: "#009DE0", fg: "#FFFFFF", soft: "#DDF3FF" },
+  Glovo: { bg: "#FFC244", fg: "#1B1B1B", soft: "#FFF3D1" },
+  Bolt: { bg: "#34D186", fg: "#0B1220", soft: "#DCF8EA" },
+};
+export const cuisineColors = {
+  pizza: { bg: "#FFE4E1", ink: "#B91C1C" }, burger: { bg: "#FDE7C8", ink: "#9A3412" }, doner: { bg: "#FEF3C7", ink: "#92400E" }, sushi: { bg: "#FCE7F3", ink: "#9D174D" },
+  asian: { bg: "#FEE2E2", ink: "#991B1B" }, italian: { bg: "#DCFCE7", ink: "#166534" }, grill: { bg: "#F3E8DD", ink: "#7C2D12" }, chicken: { bg: "#FEF9C3", ink: "#854D0E" },
+  healthy: { bg: "#D1FAE5", ink: "#065F46" }, breakfast: { bg: "#FFEDD5", ink: "#9A3412" }, dessert: { bg: "#F3E8FF", ink: "#6B21A8" }, coffee: { bg: "#EFE4DA", ink: "#5B3A29" },
+  bulgarian: { bg: "#E0F2FE", ink: "#075985" }, mexican: { bg: "#FFE4E6", ink: "#9F1239" }, seafood: { bg: "#CFFAFE", ink: "#155E75" }, sandwich: { bg: "#FEF3C7", ink: "#78350F" },
+  turkish: { bg: "#FEE2E2", ink: "#7F1D1D" }, soup: { bg: "#FFEDD5", ink: "#7C2D12" },
+};
+export const targetColors = {
+  restaurants: "#0F766E",   // teal
+  dishes: "#D97706",        // amber
+  deals: "#DB2777",         // pink
+};
+
 export const spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 };
 export const radius = { sm: 8, md: 12, lg: 16, xl: 22, pill: 999 };
 

@@ -197,7 +197,7 @@ export default function CartScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScreenHeader title="Количка" subtitle={subtitle} icon="basket">
+      <ScreenHeader title="Количка" subtitle={subtitle} icon="basket" color="#D97706">
         <Segmented options={MODES} value={mode} onChange={setMode} style={{ marginBottom: 8 }} />
         {mode === "food" ? <Segmented options={FOOD_TABS} value={foodTab} onChange={setFoodTab} /> : <Segmented options={TABS} value={tab} onChange={setTab} />}
       </ScreenHeader>
