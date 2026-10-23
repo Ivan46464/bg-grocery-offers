@@ -19,7 +19,7 @@
  * signed in and the script collects again without any tapping.
  */
 import React, { useEffect, useRef, useState } from "react";
-import { ActivityIndicator, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { colors, radius } from "../theme";
@@ -151,6 +151,13 @@ const inject = (platform, cfg, loc) => `
 const AFTER_LOAD = `(function(){ try { if (!window.__bgEarly && !sessionStorage.getItem('bgReloaded')) { sessionStorage.setItem('bgReloaded', '1'); setTimeout(function(){ location.reload(); }, 800); } } catch(e){} })(); true;`;
 
 const UA = "Mozilla/5.0 (Linux; Android 14; SM-A266B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Mobile Safari/537.36";
+/** The sites try to hand you over to their native app (wolt://, glovoapp://, intent://, Play Store). Stay in the page. */
+const stayInPage = (req) => {
+  const u = String(req?.url || "");
+  if (/^https?:\/\//i.test(u) && !/play\.google\.com|apps\.apple\.com|market:\/\//i.test(u)) return true;
+  return false;
+};
+const WEBVIEW_COMMON = { javaScriptEnabled: true, domStorageEnabled: true, sharedCookiesEnabled: true, thirdPartyCookiesEnabled: true, setSupportMultipleWindows: false, userAgent: UA, originWhitelist: ["*"], onShouldStartLoadWithRequest: stayInPage, mixedContentMode: "compatibility", allowsBackForwardNavigationGestures: true };
 
 /** Merge one capture message into the stored per-platform record. */
 function mergeMessage(rec, m) {
@@ -218,7 +225,7 @@ export function HiddenRefresh({ platform, location, onUpdate, onSession, onDone,
   if (!WebView) return null;
   return (
     <View style={{ width: 1, height: 1, opacity: 0, position: "absolute", left: -10, top: -10 }} pointerEvents="none">
-      <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={AFTER_LOAD} onMessage={onMessage} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled userAgent={UA} style={{ width: 1, height: 1 }} />
+      <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={AFTER_LOAD} onMessage={onMessage} {...WEBVIEW_COMMON} style={{ width: 1, height: 1 }} />
     </View>
   );
 }
@@ -227,7 +234,15 @@ export default function AccountConnect({ platform, visible, location, onClose, o
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [connected, setConnected] = useState(false);
-  useEffect(() => setConnected(false), [platform, visible]);
+  const [err, setErr] = useState(null);
+  const [nav, setNav] = useState("");
+  const [key, setKey] = useState(0); // bump to reload the page
+  const webRef = useRef(null);
+  useEffect(() => {
+    setConnected(false);
+    setErr(null);
+    setLoading(true);
+  }, [platform, visible]);
   const { rec, onMessage, script, cfg } = useAccountWebView(platform, location, onUpdate, (p) => {
     setConnected(true);
     onSession?.(p);
@@ -255,17 +270,40 @@ export default function AccountConnect({ platform, visible, location, onClose, o
           </Pressable>
         </View>
         {WebView ? (
-          <WebView source={{ uri: cfg.home }} injectedJavaScriptBeforeContentLoaded={script} injectedJavaScript={AFTER_LOAD} onMessage={onMessage} onLoadEnd={() => setLoading(false)} javaScriptEnabled domStorageEnabled sharedCookiesEnabled thirdPartyCookiesEnabled setSupportMultipleWindows={false} userAgent={UA} style={{ flex: 1 }} />
+          <WebView
+            key={`${platform}-${key}`}
+            ref={webRef}
+            source={{ uri: cfg.home }}
+            injectedJavaScriptBeforeContentLoaded={script}
+            injectedJavaScript={AFTER_LOAD}
+            onMessage={onMessage}
+            onLoadStart={() => setLoading(true)}
+            onLoadEnd={() => setLoading(false)}
+            onNavigationStateChange={(st) => setNav(String(st?.url || "").replace(/^https?:\/\//, "").slice(0, 60))}
+            onError={(e) => setErr(`${e?.nativeEvent?.description || "грешка при зареждане"} (${e?.nativeEvent?.code ?? ""})`)}
+            onHttpError={(e) => (e?.nativeEvent?.statusCode >= 400 && /^https?:\/\/[^/]*(wolt|glovo|bolt)/.test(String(e?.nativeEvent?.url || "")) ? setErr(`HTTP ${e.nativeEvent.statusCode} от ${String(e.nativeEvent.url).replace(/^https?:\/\//, "").slice(0, 50)}`) : null)}
+            onRenderProcessGone={() => setErr("браузърът спря - натисни Презареди")}
+            {...WEBVIEW_COMMON}
+            style={{ flex: 1 }}
+          />
         ) : (
           <View style={styles.center}>
             <Text style={styles.subDark}>Входът в {platform} работи само в приложението на телефона.</Text>
           </View>
         )}
-        {loading && WebView ? (
-          <View style={styles.loading}>
-            <ActivityIndicator color={cfg.bg} />
-          </View>
-        ) : null}
+        <View style={styles.status}>
+          {loading ? <ActivityIndicator size="small" color={cfg.bg} /> : <Ionicons name={err ? "alert-circle" : "globe-outline"} size={14} color={err ? colors.danger : colors.ink3} />}
+          <Text style={[styles.statusText, err && { color: colors.danger }]} numberOfLines={2}>
+            {err ? `Не се зареди: ${err}` : loading ? `Зареждаме ${nav || cfg.home.replace(/^https?:\/\//, "")}…` : nav || ""}
+          </Text>
+          <Pressable onPress={() => { setErr(null); setKey((k) => k + 1); }} hitSlop={8} style={styles.reload}>
+            <Ionicons name="refresh" size={14} color={colors.ink2} />
+            <Text style={styles.reloadText}>Презареди</Text>
+          </Pressable>
+          <Pressable onPress={() => Linking.openURL(cfg.home).catch(() => {})} hitSlop={8} style={styles.reload}>
+            <Ionicons name="open-outline" size={14} color={colors.ink2} />
+          </Pressable>
+        </View>
       </View>
     </Modal>
   );
@@ -280,5 +318,8 @@ const styles = StyleSheet.create({
   done: { flexDirection: "row", alignItems: "center", gap: 4, backgroundColor: colors.ink, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8 },
   doneText: { color: "#fff", fontWeight: "800", fontSize: 13 },
   center: { flex: 1, alignItems: "center", justifyContent: "center", padding: 24 },
-  loading: { position: "absolute", top: 80, left: 0, right: 0, alignItems: "center" },
+  status: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 10, paddingVertical: 6, backgroundColor: colors.surfaceAlt, borderBottomWidth: 1, borderBottomColor: colors.border },
+  statusText: { flex: 1, fontSize: 11, color: colors.ink3 },
+  reload: { flexDirection: "row", alignItems: "center", gap: 3, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  reloadText: { fontSize: 11, fontWeight: "700", color: colors.ink2 },
 });
