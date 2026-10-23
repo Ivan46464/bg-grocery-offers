@@ -28,6 +28,7 @@ export default function SearchScreen({ navigation }) {
   const toast = useToast();
 
   const [mode, setMode] = useState("markets"); // markets | food
+  const [foodTarget, setFoodTarget] = useState("restaurants"); // restaurants | dishes | deals - what the search box searches in food mode
   const [query, setQuery] = useState("");
   const [tag, setTag] = useState(null);
   const [store, setStore] = useState(null);
@@ -195,12 +196,17 @@ export default function SearchScreen({ navigation }) {
           }}
           style={{ marginBottom: 10 }}
         />
-        <SearchBar value={query} onChangeText={setQuery} onSubmit={Keyboard.dismiss} placeholder={mode === "food" ? "Търси ястие или ресторант… пица, бургер" : undefined} />
+        <SearchBar
+          value={query}
+          onChangeText={setQuery}
+          onSubmit={Keyboard.dismiss}
+          placeholder={mode === "food" ? (foodTarget === "dishes" ? "Търси ястие… пица маргарита, дюнер" : foodTarget === "deals" ? "Търси в промоциите…" : "Търси ресторант… Небесна храна") : undefined}
+        />
       </ScreenHeader>
 
       {mode === "food" ? (
         <View style={styles.content}>
-          <FoodScreen query={query} />
+          <FoodScreen query={query} target={foodTarget} onTarget={(t, q) => { setFoodTarget(t); setQuery(q || ""); }} />
         </View>
       ) : (
         <>

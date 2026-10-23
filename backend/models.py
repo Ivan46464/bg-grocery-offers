@@ -143,6 +143,7 @@ class Restaurant(SQLModel, table=True):
     image_url: Optional[str] = None
     address: Optional[str] = None
     tags: str = ""                                  # "burger,pizza"
+    cuisines: str = Field(default="", index=True)   # canonical keys, e.g. "pizza,italian" (restaurants.CUISINES)
     rating: Optional[float] = None                  # platform score (Wolt 0-10)
     rating_count: Optional[int] = None
     delivery_minutes: Optional[int] = None
@@ -349,6 +350,7 @@ class WatchRead(SQLModel):
 class RestaurantRead(SQLModel):
     id: int
     platform: str
+    external_id: str = ""                           # Wolt slug / Bolt provider id (key into /api/food/nearby)
     name: str
     group_key: str
     url: str
@@ -376,6 +378,7 @@ class RestaurantGroup(SQLModel):
     name: str
     image_url: Optional[str]
     tags: list[str] = []
+    cuisines: list[str] = []                        # canonical cuisine keys (union of the listings)
     listings: list[RestaurantRead]                  # one per platform
     cheapest_delivery_platform: Optional[str] = None
 
@@ -395,6 +398,7 @@ class DishRead(SQLModel):
     restaurant_name: str
     restaurant_url: str
     restaurant_group: Optional[str] = None
+    restaurant_external_id: Optional[str] = None    # Wolt slug / Bolt provider id, key into /api/food/nearby
     delivery_minutes: Optional[int] = None
     delivery_fee: Optional[float] = None
     score: Optional[int] = None
@@ -419,6 +423,7 @@ class FoodStatus(SQLModel):
     platforms: dict[str, int]                       # restaurants per platform
     dishes: int
     deals: int = 0                                  # dishes currently discounted on some platform
+    cuisines: dict[str, int] = {}                   # cuisine key -> restaurants (groups)
     last_scraped: Optional[datetime]
     scraping: bool
 

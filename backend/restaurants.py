@@ -44,6 +44,59 @@ def group_key(name: str) -> str:
 
 
 # --------------------------------------------------------------------------- #
+# Cuisines - the category shortcuts the delivery apps show (🍕 Пица, 🥙 Дюнер,
+# 🍣 Суши ...). Derived from the restaurant's name, the platform's tags and
+# what the menu is mostly made of, so all three platforms get the same keys.
+# --------------------------------------------------------------------------- #
+CUISINES: list[tuple[str, str, str]] = [            # (key, label, emoji) in display order
+    ("pizza", "Пица", "🍕"), ("burger", "Бургери", "🍔"), ("doner", "Дюнер", "🥙"), ("sushi", "Суши", "🍣"),
+    ("asian", "Азиатска", "🥢"), ("italian", "Италианска", "🍝"), ("grill", "Скара", "🍖"), ("chicken", "Пиле", "🍗"),
+    ("healthy", "Салати", "🥗"), ("breakfast", "Закуска", "🥞"), ("dessert", "Десерти", "🍰"), ("coffee", "Кафе", "☕"),
+    ("bulgarian", "Българска", "🇧🇬"), ("mexican", "Мексиканска", "🌮"), ("seafood", "Риба", "🐟"), ("sandwich", "Сандвичи", "🥪"),
+    ("turkish", "Турска", "🇹🇷"), ("soup", "Супи", "🍲"),
+]
+_CUISINE_RX = {
+    "pizza": re.compile(r"пица|пици|pizza|пицар|pitsa", re.I),
+    "burger": re.compile(r"бургер|burger|смаш|smash|burgeri", re.I),
+    "doner": re.compile(r"дюнер|дунер|döner|doner|dyuner|кебап|kebab|kebap|гирос|gyros|шаурма|shawarma", re.I),
+    "sushi": re.compile(r"суши|sushi|сашими|sashimi|нигири|\bрол\w*\b|poke|поке", re.I),
+    "asian": re.compile(r"китайск|chinese|kitayska|азиатск|aziatska|asian|тайланд|thai|виетнам|vietnam|рамен|ramen|нудли|noodle|\bwok\b|уок|японск|japanese|корейск|korean|индийск|indian|къри|curry", re.I),
+    "italian": re.compile(r"италианск|italianska|italian|паста|pasta|ризото|risotto|лазаня|lasagn|спагети|spaghetti|пене\b|фокача|focaccia", re.I),
+    "grill": re.compile(r"скара|skara|na skara|grill|барбекю|barbekyu|bbq|кюфте|кебапче|стек|steak|ребра|ribs|шишче|skewer", re.I),
+    "chicken": re.compile(r"пиле|пилешк|pile\b|chicken|крилца|wings|крила\b|нъгетс|nugget|тендър", re.I),
+    "healthy": re.compile(r"салат|salat|salad|здравослов|zdravoslovn|healthy|\bfit\b|фит\b|веган|vegan|вегетар|vegetar|боул|bowl|смути|smoothie|протеин|protein", re.I),
+    "breakfast": re.compile(r"закуск|zakusk|breakfast|палачинк|palachink|pancake|crepe|креп|омлет|omelet|бранч|brunch|гофрет|waffle|яйца", re.I),
+    "dessert": re.compile(r"десерт|desert|dessert|торт|cake|сладк|сладолед|ice ?cream|бисквит|cookie|донът|donut|пекарн|bakery|кроасан|croissant|баклав|еклер|мъфин|muffin|брауни|чийзкейк|cheesecake", re.I),
+    "coffee": re.compile(r"кафе|kafe|coffee|кафене|cafe|chay i kafe|caffe|еспресо|espresso|капучино|cappuccino|лате|latte|\bчай\b|\btea\b|фрапе|frappe", re.I),
+    "bulgarian": re.compile(r"българск|balgarsk|bulgarian|mestna hrana|домашн|homemade|традицион|balkan|балканск|механа|mehana|готвен|баница|шкембе|мусака|таратор|лютениц", re.I),
+    "mexican": re.compile(r"мексик|meksik|mexic|тако|taco|бурито|burrito|кесадия|quesadilla|начос|nachos|тортия|tortilla", re.I),
+    "seafood": re.compile(r"\bриба|fish|seafood|морск|morska|скарид|shrimp|миди|mussel|октопод|octopus|калмар|calamar|сьомга|salmon|цаца", re.I),
+    "sandwich": re.compile(r"сандвич|sandvich|sandwich|панини|panini|тост\b|toast|хот ?дог|hot ?dog|\bwrap|рап\b|багет|baguette|сабуей|subway", re.I),
+    "turkish": re.compile(r"турск|tursk|turkish|лахмаджун|lahmacun|пиде|pide|искендер|iskender|адана|adana|баклав", re.I),
+    "soup": re.compile(r"\bсупа|\bсупи|supi|soup|шкембе|чорба|бульон|broth|рамен", re.I),
+}
+
+
+def cuisines_for(name: str, tags: list[str], dishes: list) -> list[str]:
+    """Canonical cuisine keys for one listing: name / platform tags count a lot, menu composition a bit."""
+    head = f"{name} {' '.join(tags or [])}"
+    score: dict[str, float] = {}
+    for key, rx in _CUISINE_RX.items():
+        if rx.search(head):
+            score[key] = score.get(key, 0) + 3
+    n = max(len(dishes), 1)
+    generic = {"chicken", "healthy", "seafood", "dessert", "sandwich", "grill", "soup", "breakfast", "coffee", "bulgarian", "italian"}
+    for key, rx in _CUISINE_RX.items():
+        hits = sum(1 for d in dishes if rx.search(f"{d.name} {d.category or ''}"))
+        share = hits / n
+        strong = (hits >= 5 and share >= 0.25) if key in generic else (hits >= 3 and share >= 0.12) or hits >= 8
+        if strong:
+            score[key] = score.get(key, 0) + min(3, 1 + share * 6)
+    ranked = sorted(score.items(), key=lambda kv: (-kv[1], [k for k, _, _ in CUISINES].index(kv[0])))
+    return [k for k, _ in ranked[:4]]
+
+
+# --------------------------------------------------------------------------- #
 # Dish kinds - so a search for "дюнер" ranks the dish above "Дюнер месо" (an
 # add-on) and the app can show Основни / Гарнитури / Напитки / Десерти / Добавки.
 # --------------------------------------------------------------------------- #
@@ -284,13 +337,16 @@ class GlovoScraper:
         html = client.get(self.BASE + self.CATEGORY).text
         types = sorted(set(re.findall(r"\?type=([a-z0-9-]+_\d+)", html)))
         slugs: dict[str, None] = {}
+        self._type_tags: dict[str, list[str]] = {}
         for m in re.findall(r"/bg/bg/varna/stores/([a-z0-9-]+)", html):
             slugs.setdefault(m)
         for t in types:
             try:
                 page = client.get(self.BASE + self.CATEGORY, params={"type": t}).text
+                label = t.rsplit("_", 1)[0].replace("-", " ")        # pitsa_34701 -> "pitsa"
                 for m in re.findall(r"/bg/bg/varna/stores/([a-z0-9-]+)", page):
                     slugs.setdefault(m)
+                    self._type_tags.setdefault(m, []).append(label)
             except httpx.HTTPError:
                 continue
         return list(slugs)
@@ -309,6 +365,7 @@ class GlovoScraper:
             name=name,
             url=self.STORE_URL.format(slug=slug),
             image_url=None,                                           # og:image is just the Glovo logo
+            tags=list(dict.fromkeys(getattr(self, "_type_tags", {}).get(slug, [])))[:6],
             rating=(int(pct.group(1)) / 10) if pct else None,      # "95%" -> 9.5, comparable with Wolt's 0-10
             delivery_fee=(int(fee.group(1)) + int(fee.group(2)) / 100) if fee else None,
         )
@@ -509,6 +566,7 @@ def store_restaurants(session: Session, platform: str, restaurants: list[Scraped
             platform=r.platform, external_id=r.external_id, name=r.name, group_key=group_key(r.name), url=r.url,
             image_url=r.image_url, address=r.address, tags=",".join(r.tags), rating=r.rating, rating_count=r.rating_count,
             delivery_minutes=r.delivery_minutes, delivery_fee=r.delivery_fee, price_range=r.price_range, online=r.online,
+            cuisines=",".join(cuisines_for(r.name, r.tags, r.dishes)),
         )
         session.add(row)
         session.flush()

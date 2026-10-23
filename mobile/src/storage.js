@@ -12,6 +12,7 @@ const KEYS = {
   trips: "trips.v1",
   savedDishes: "food.saved.v1",
   foodOrders: "food.orders.v1",
+  foodLocation: "food.location.v1",
 };
 
 async function read(key, fallback) {
@@ -90,6 +91,10 @@ export async function toggleSavedDish(d) {
   await saveSavedDishes([{ id, name, price, original_price: original_price ?? null, platform, restaurant_name, restaurant_url, image_url: image_url || null, category: category || null, kind: kind || "main", savedAt: new Date().toISOString() }, ...list]);
   return true;
 }
+/** Where restaurant orders go: { label, lat, lng } or null (delivery fees / availability depend on it). */
+export const loadFoodLocation = () => read(KEYS.foodLocation, null);
+export const saveFoodLocation = (loc) => write(KEYS.foodLocation, loc);
+
 /** Restaurant orders you logged: { id, date, store (platform), note (restaurant), items: [{ name, qty, price }], total }. */
 export const loadFoodOrders = () => read(KEYS.foodOrders, []);
 export const saveFoodOrders = (orders) => write(KEYS.foodOrders, orders);

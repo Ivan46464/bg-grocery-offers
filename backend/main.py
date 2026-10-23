@@ -82,7 +82,8 @@ from models import (
 )
 from push import best_match, check_watches, meets_target
 from rapidfuzz import fuzz
-from restaurants import dish_kind, run_all_restaurant_scrapers, same_dish
+from restaurants import CUISINES, cuisines_for, dish_kind, run_all_restaurant_scrapers, same_dish
+import nearby
 from scraper import STORE_NAMES, offers_count, run_all_scrapers
 from search import search_offers
 from tags import TAGS
@@ -164,8 +165,21 @@ async def _periodic_scraper() -> None:
 
 
 @asynccontextmanager
+def _backfill_cuisines() -> None:
+    with Session(engine) as session:
+        rows = session.exec(select(Restaurant).where((Restaurant.cuisines == "") | (Restaurant.cuisines.is_(None)))).all()
+        if not rows:
+            return
+        for r in rows:
+            dishes = session.exec(select(Dish).where(Dish.restaurant_id == r.id)).all()
+            r.cuisines = ",".join(cuisines_for(r.name, (r.tags or "").split(","), dishes)) or "-"
+        session.commit()
+        log.info("Cuisines backfilled for %d restaurants", len(rows))
+
+
 async def lifespan(app: FastAPI):
     init_db()
+    _backfill_cuisines()
     with Session(engine) as session:
         empty = offers_count(session) == 0
     if SCRAPE_ON_STARTUP == "always" or (SCRAPE_ON_STARTUP == "auto" and empty):
@@ -565,7 +579,7 @@ def _dish_read(d: Dish, r: Restaurant, score: Optional[int] = None) -> DishRead:
     return DishRead(
         id=d.id, platform=d.platform, name=d.name, description=d.description, category=d.category, price=d.price,
         original_price=d.original_price, image_url=d.image_url, kind=d.kind or "main", discount_pct=pct, restaurant_id=r.id,
-        restaurant_name=r.name, restaurant_url=r.url, restaurant_group=r.group_key, delivery_minutes=r.delivery_minutes,
+        restaurant_name=r.name, restaurant_url=r.url, restaurant_group=r.group_key, restaurant_external_id=r.external_id, delivery_minutes=r.delivery_minutes,
         delivery_fee=r.delivery_fee, score=score,
     )
 
@@ -583,6 +597,7 @@ def _groups(rows: list[Restaurant], counts: dict[int, int]) -> list[RestaurantGr
             RestaurantGroup(
                 group_key=key, name=listings[0].name, image_url=next((r.image_url for r in listings if r.image_url), None),
                 tags=[t for t in (listings[0].tags or "").split(",") if t],
+                cuisines=[k for k, _, _ in CUISINES if any(k in (r.cuisines or "").split(",") for r in listings)],
                 listings=[RestaurantRead.from_row(r, counts.get(r.id, 0)) for r in listings],
                 cheapest_delivery_platform=cheapest,
             )
@@ -598,15 +613,25 @@ def food_status(session: Session = Depends(get_session)):
         platforms[p] = platforms.get(p, 0) + 1
     dishes = session.exec(select(func.count(Dish.id))).one()
     deals = session.exec(select(func.count(Dish.id)).where(Dish.original_price > Dish.price)).one()
-    return FoodStatus(city="Varna", platforms=platforms, dishes=int(dishes or 0), deals=int(deals or 0), last_scraped=max((s for _, s in rows), default=None), scraping=_state["food_scraping"])
+    cuisines: dict[str, int] = {}
+    seen_groups: set[tuple[str, str]] = set()
+    for key, cs in session.exec(select(Restaurant.group_key, Restaurant.cuisines)).all():
+        for c in (cs or "").split(","):
+            if c and c != "-" and (key, c) not in seen_groups:
+                seen_groups.add((key, c))
+                cuisines[c] = cuisines.get(c, 0) + 1
+    cuisines = {k: cuisines[k] for k, _, _ in CUISINES if k in cuisines}
+    return FoodStatus(city="Varna", platforms=platforms, dishes=int(dishes or 0), deals=int(deals or 0), cuisines=cuisines, last_scraped=max((s for _, s in rows), default=None), scraping=_state["food_scraping"])
 
 
 @app.get("/api/food/restaurants", response_model=list[RestaurantGroup], tags=["food"])
-def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, platform: Optional[str] = None, limit: int = Query(60, ge=1, le=300), session: Session = Depends(get_session)):
-    """Restaurants in Varna grouped across platforms; optional name/tag/platform filter."""
+def food_restaurants(q: Optional[str] = None, tag: Optional[str] = None, platform: Optional[str] = None, cuisine: Optional[str] = None, limit: int = Query(60, ge=1, le=300), session: Session = Depends(get_session)):
+    """Restaurants in Varna grouped across platforms; optional name/tag/platform/cuisine filter (cuisine = key from /api/food/status)."""
     rows = session.exec(select(Restaurant)).all()
     if platform:
         rows = [r for r in rows if r.platform.lower() == platform.lower()]
+    if cuisine:
+        rows = [r for r in rows if cuisine in (r.cuisines or "").split(",")]
     if q:
         ql = q.lower().strip()
         rows = [r for r in rows if ql in r.name.lower() or (len(ql) >= 4 and fuzz.partial_ratio(ql, r.name.lower()) >= 88) or ql in (r.tags or "").lower()]
@@ -657,7 +682,7 @@ def food_restaurant(group_key: str, session: Session = Depends(get_session)):
 
 
 @app.get("/api/food/deals", response_model=list[DishRead], tags=["food"])
-def food_deals(platform: Optional[str] = None, kind: Optional[str] = None, limit: int = Query(100, ge=1, le=400), session: Session = Depends(get_session)):
+def food_deals(platform: Optional[str] = None, kind: Optional[str] = None, cuisine: Optional[str] = None, q: Optional[str] = None, limit: int = Query(100, ge=1, le=400), session: Session = Depends(get_session)):
     """Dishes that a platform currently shows with a crossed-out old price (Wolt / Glovo / Bolt promos), biggest discount first."""
     stmt = select(Dish).where(Dish.original_price > Dish.price)
     if platform:
@@ -666,10 +691,15 @@ def food_deals(platform: Optional[str] = None, kind: Optional[str] = None, limit
         stmt = stmt.where(Dish.kind == kind)
     rows = session.exec(stmt).all()
     rests = {r.id: r for r in session.exec(select(Restaurant)).all()}
+    ql = (q or "").lower().strip()
     best: dict[tuple, Dish] = {}
     for d in rows:
         r = rests.get(d.restaurant_id)
         if not r:
+            continue
+        if cuisine and cuisine not in (r.cuisines or "").split(","):
+            continue
+        if ql and ql not in d.name.lower() and ql not in r.name.lower():
             continue
         key = (r.group_key, d.platform, d.name_key)
         if key not in best or d.price < best[key].price:
@@ -680,7 +710,7 @@ def food_deals(platform: Optional[str] = None, kind: Optional[str] = None, limit
 
 
 @app.get("/api/food/search", response_model=list[DishRead], tags=["food"])
-def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Optional[str] = None, kind: Optional[str] = None, limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
+def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Optional[str] = None, kind: Optional[str] = None, cuisine: Optional[str] = None, limit: int = Query(60, ge=1, le=200), session: Session = Depends(get_session)):
     """Dishes across all Varna restaurants and platforms, cheapest first ('пица маргарита', 'бургер').
 
     kind=main|side|extra|drink|dessert narrows to that kind; without it add-ons ("Дюнер месо", sauces) rank
@@ -700,7 +730,7 @@ def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Opti
         if (pf and dplatform.lower() != pf) or (kind and dkind != kind):
             continue
         r = rests.get(rid)
-        if not r:
+        if not r or (cuisine and cuisine not in (r.cuisines or "").split(",")):
             continue
         if word_start.search(nl):
             s = 100                                     # the query starts a word: "кола" in "кока-кола", not in "шоколад"
@@ -724,6 +754,13 @@ def food_search(q: str = Query(..., min_length=2, max_length=60), platform: Opti
     hits = sorted(best.values(), key=lambda t: (-(t[0] >= 95), t[2], -t[0]))[:limit]   # exact matches first, then cheapest
     by_id = {d.id: d for d in session.exec(select(Dish).where(Dish.id.in_([h[1] for h in hits]))).all()} if hits else {}
     return [_dish_read(by_id[did], rests[by_id[did].restaurant_id], s) for s, did, _ in hits if did in by_id]
+
+
+@app.get("/api/food/nearby", tags=["food"])
+async def food_nearby(lat: float = Query(..., ge=42.5, le=44.0), lng: float = Query(..., ge=27.0, le=29.0)):
+    """Live delivery info for *your* delivery point: which Wolt venues / Bolt providers deliver there, with the
+    fee and time the platform quotes for that address. Cached 15 min per ~100 m. Glovo has no public per-address API."""
+    return await asyncio.to_thread(nearby.lookup, lat, lng)
 
 
 # ---- admin ------------------------------------------------------------------

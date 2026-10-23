@@ -1,19 +1,25 @@
 /**
- * Ресторанти mode (Varna): search dishes across Wolt / Glovo / Bolt Food and
- * see where the same thing is cheaper, browse restaurants and open one to
- * compare every dish per platform, or browse today's deals (crossed-out
- * prices). "Поръчай" deep-links into the platform; the heart saves a dish to
- * Количка → Ресторанти so you can find it again and log what you ordered.
+ * Ресторанти mode (Varna) - Wolt / Glovo / Bolt Food in one place.
+ *
+ *  target  = what the search box works on:  Ресторанти · Ястия · Промоции
+ *  filters = platform (Сравни всички / Wolt / Glovo / Bolt), delivery point
+ *            ("Доставка до" - fees / availability depend on it) and cuisine
+ *            shortcuts like the apps have (🍕 Пица, 🥙 Дюнер, 🍣 Суши ...).
+ *
+ * Tap a restaurant → its whole menu with the price on every platform (kinds
+ * Основни / Гарнитури / Напитки / Десерти / Добавки and the menu sections as
+ * chips). Tap a dish → the same dish elsewhere, cheapest first. The heart
+ * saves a dish to Количка → Ресторанти. "Поръчай" deep-links into the app.
  */
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActivityIndicator, FlatList, Image, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { getFoodDeals, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
+import { getFoodDeals, getFoodNearby, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
 import EmptyState from "../components/EmptyState";
 import { useToast } from "../components/Toast";
 import { SEARCH_DEBOUNCE_MS } from "../config";
-import { loadSavedDishes, onSavedDishesChange, toggleSavedDish } from "../storage";
+import { loadFoodLocation, loadSavedDishes, onSavedDishesChange, saveFoodLocation, toggleSavedDish } from "../storage";
 import { colors, money, radius, shadow } from "../theme";
 
 export const PLATFORMS = {
@@ -33,6 +39,26 @@ export const KINDS = [
   { key: "extra", label: "Добавки" },
 ];
 export const KIND_LABEL = Object.fromEntries(KINDS.filter((k) => k.key).map((k) => [k.key, k.label]));
+
+/** Cuisine shortcuts - keys match backend restaurants.CUISINES; counts come from /api/food/status. */
+const CUISINES = [
+  ["pizza", "Пица", "🍕"], ["burger", "Бургери", "🍔"], ["doner", "Дюнер", "🥙"], ["sushi", "Суши", "🍣"],
+  ["asian", "Азиатска", "🥢"], ["italian", "Италианска", "🍝"], ["grill", "Скара", "🍖"], ["chicken", "Пиле", "🍗"],
+  ["healthy", "Салати", "🥗"], ["breakfast", "Закуска", "🥞"], ["dessert", "Десерти", "🍰"], ["coffee", "Кафе", "☕"],
+  ["bulgarian", "Българска", "🇧🇬"], ["mexican", "Мексиканска", "🌮"], ["seafood", "Риба", "🐟"], ["sandwich", "Сандвичи", "🥪"],
+  ["turkish", "Турска", "🇹🇷"], ["soup", "Супи", "🍲"],
+];
+const CUISINE_LABEL = Object.fromEntries(CUISINES.map(([k, l, e]) => [k, `${e} ${l}`]));
+
+/** Varna districts as delivery points (lat, lng). */
+export const DISTRICTS = [
+  ["Център", 43.2047, 27.9105], ["Чайка", 43.224, 27.945], ["Левски", 43.227, 27.933], ["Младост", 43.23, 27.89],
+  ["Възраждане", 43.225, 27.9], ["Владиславово", 43.233, 27.865], ["Трошево", 43.22, 27.895], ["Победа", 43.213, 27.885],
+  ["Аспарухово", 43.185, 27.9], ["Галата", 43.17, 27.925], ["Виница", 43.25, 27.97], ["Бриз", 43.216, 27.955],
+  ["Кайсиева градина", 43.238, 27.878], ["Изгрев", 43.24, 27.905], ["Св. Никола", 43.232, 27.955], ["Евксиноград", 43.236, 27.978],
+];
+
+const POPULAR_DISHES = ["пица маргарита", "бургер", "дюнер", "суши", "паста карбонара", "шопска салата", "пиле", "палачинки"];
 
 export function PlatformBadge({ platform, size = "sm" }) {
   const p = PLATFORMS[platform] || { bg: colors.ink, fg: "#fff" };
@@ -73,11 +99,16 @@ function useSavedIds() {
   return saved;
 }
 
-export default function FoodScreen({ query }) {
+/** Delivery info for one listing at the user's point: null = unknown (Glovo / no location), else {delivers, fee, minutes, note}. */
+const atPoint = (nearby, platform, externalId) => (nearby && nearby[platform] ? nearby[platform][externalId] || { delivers: false } : null);
+
+export default function FoodScreen({ query, target = "restaurants", onTarget }) {
   const [status, setStatus] = useState(null);
   const [platform, setPlatform] = useState(null); // null = compare all platforms
-  const [view, setView] = useState("restaurants"); // restaurants | deals (when not searching)
-  const [kind, setKind] = useState(null); // dish kind filter for search / deals
+  const [cuisine, setCuisine] = useState(null);
+  const [location, setLocation] = useState(null); // { label, lat, lng } | null
+  const [nearby, setNearby] = useState(null); // /api/food/nearby for `location`
+  const [locPicker, setLocPicker] = useState(false);
   const [restaurants, setRestaurants] = useState([]);
   const [dishes, setDishes] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -86,36 +117,46 @@ export default function FoodScreen({ query }) {
   const [compare, setCompare] = useState(null); // dish to compare across restaurants
   const abortRef = useRef(null);
   const saved = useSavedIds();
-  const isSearching = query.trim().length >= 2;
+  const q = query.trim();
 
   useEffect(() => {
     getFoodStatus().then(setStatus).catch(() => {});
+    loadFoodLocation().then((l) => l && setLocation(l));
   }, []);
 
-  const load = useCallback(async (q, pf, vw, kd) => {
+  // live delivery info for the chosen point (cached 15 min on the server)
+  useEffect(() => {
+    if (!location) return setNearby(null);
+    let on = true;
+    getFoodNearby(location.lat, location.lng)
+      .then((n) => on && setNearby(n))
+      .catch(() => on && setNearby(null));
+    return () => {
+      on = false;
+    };
+  }, [location]);
+
+  const load = useCallback(async (tg, qq, pf, cu) => {
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
     setLoading(true);
     setError(null);
     try {
-      if (q.trim().length >= 2) {
-        const [d, r] = await Promise.all([
-          searchDishes(q.trim(), { platform: pf, kind: kd, signal: controller.signal }),
-          listRestaurants({ q: q.trim(), platform: pf, limit: 6, signal: controller.signal }),
-        ]);
+      if (tg === "dishes") {
+        const d = qq.length >= 2 ? await searchDishes(qq, { platform: pf, cuisine: cu, limit: 80, signal: controller.signal }) : [];
         if (!controller.signal.aborted) {
           setDishes(d);
-          setRestaurants(r);
+          setRestaurants([]);
         }
-      } else if (vw === "deals") {
-        const d = await getFoodDeals({ platform: pf, kind: kd, limit: 150, signal: controller.signal });
+      } else if (tg === "deals") {
+        const d = await getFoodDeals({ platform: pf, cuisine: cu, q: qq || undefined, limit: 200, signal: controller.signal });
         if (!controller.signal.aborted) {
           setDishes(d);
           setRestaurants([]);
         }
       } else {
-        const r = await listRestaurants({ platform: pf, limit: 300, signal: controller.signal });
+        const r = await listRestaurants({ q: qq || undefined, platform: pf, cuisine: cu, limit: 300, signal: controller.signal });
         if (!controller.signal.aborted) {
           setRestaurants(r);
           setDishes([]);
@@ -129,87 +170,127 @@ export default function FoodScreen({ query }) {
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => load(query, platform, view, kind), query ? SEARCH_DEBOUNCE_MS : 0);
+    const t = setTimeout(() => load(target, q, platform, cuisine), q ? SEARCH_DEBOUNCE_MS : 0);
     return () => clearTimeout(t);
-  }, [query, platform, view, kind, load]);
+  }, [target, q, platform, cuisine, load]);
 
-  const retry = () => load(query, platform, view, kind);
+  const retry = () => load(target, q, platform, cuisine);
 
-  const platformBar = (
-    <View style={styles.pfBar}>
-      {[null, ...PLATFORM_ORDER].map((p) => {
-        const active = platform === p;
-        const brand = p ? PLATFORMS[p] : { bg: colors.ink, fg: "#fff" };
-        const count = p ? status?.platforms?.[p] : null;
-        const disabled = p && status && !count;
-        return (
-          <Pressable key={String(p)} onPress={() => !disabled && setPlatform(p)} style={[styles.pfBtn, active && { backgroundColor: brand.bg, borderColor: brand.bg }, disabled && { opacity: 0.4 }]}>
-            <Text style={[styles.pfBtnText, active && { color: brand.fg }]}>
-              {p || "Сравни всички"}
-              {count ? ` ${count}` : ""}
-            </Text>
-          </Pressable>
-        );
-      })}
-    </View>
-  );
+  const pickLocation = (loc) => {
+    setLocation(loc);
+    saveFoodLocation(loc);
+    setLocPicker(false);
+  };
 
-  const showKinds = isSearching || view === "deals";
+  // apply the delivery point: hide what cannot be delivered there (Glovo listings are kept - no public per-address data)
+  const visibleRestaurants = useMemo(() => {
+    if (!nearby) return restaurants;
+    return restaurants
+      .map((g) => {
+        const listings = g.listings.filter((l) => {
+          const a = atPoint(nearby, l.platform, l.external_id);
+          return a == null || a.delivers;
+        });
+        return listings.length ? { ...g, listings } : null;
+      })
+      .filter(Boolean);
+  }, [restaurants, nearby]);
+  const visibleDishes = useMemo(() => {
+    if (!nearby) return dishes;
+    return dishes.filter((d) => {
+      const a = atPoint(nearby, d.platform, d.restaurant_external_id);
+      return a == null || a.delivers;
+    });
+  }, [dishes, nearby]);
+
+  // ---- toolbar ------------------------------------------------------------
+  const targets = [
+    { key: "restaurants", label: "Ресторанти", icon: "restaurant" },
+    { key: "dishes", label: "Ястия", icon: "fast-food" },
+    { key: "deals", label: status?.deals ? `Промоции ${status.deals}` : "Промоции", icon: "pricetag" },
+  ];
   const toolbar = (
     <View style={styles.toolbar}>
-      {!isSearching && (
-        <View style={styles.viewRow}>
-          {[
-            { key: "restaurants", label: "Ресторанти", icon: "restaurant" },
-            { key: "deals", label: `Промоции${status?.deals ? ` ${status.deals}` : ""}`, icon: "pricetag" },
-          ].map((v) => {
-            const active = view === v.key;
-            return (
-              <Pressable key={v.key} onPress={() => setView(v.key)} style={[styles.viewBtn, active && styles.viewBtnActive]}>
-                <Ionicons name={active ? v.icon : `${v.icon}-outline`} size={14} color={active ? "#fff" : colors.ink2} />
-                <Text style={[styles.viewBtnText, active && { color: "#fff" }]}>{v.label}</Text>
-              </Pressable>
-            );
-          })}
-        </View>
-      )}
-      {showKinds && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6 }} keyboardShouldPersistTaps="handled">
-          {KINDS.map((k) => {
-            const active = kind === k.key;
-            return (
-              <Pressable key={String(k.key)} onPress={() => setKind(k.key)} style={[styles.kindChip, active && styles.kindChipActive]}>
-                <Text style={[styles.kindText, active && { color: "#fff" }]}>{k.label}</Text>
-              </Pressable>
-            );
-          })}
-        </ScrollView>
-      )}
+      <View style={styles.targetRow}>
+        {targets.map((t) => {
+          const active = target === t.key;
+          return (
+            <Pressable key={t.key} onPress={() => onTarget?.(t.key)} style={[styles.targetBtn, active && styles.targetBtnActive]}>
+              <Ionicons name={active ? t.icon : `${t.icon}-outline`} size={14} color={active ? "#fff" : colors.ink2} />
+              <Text style={[styles.targetText, active && { color: "#fff" }]} numberOfLines={1}>
+                {t.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
+        {[null, ...PLATFORM_ORDER].map((p) => {
+          const active = platform === p;
+          const brand = p ? PLATFORMS[p] : { bg: colors.ink, fg: "#fff" };
+          const count = p ? status?.platforms?.[p] : null;
+          return (
+            <Pressable key={String(p)} onPress={() => setPlatform(p)} style={[styles.chip, active && { backgroundColor: brand.bg, borderColor: brand.bg }]}>
+              <Text style={[styles.chipText, active && { color: brand.fg }]}>{p ? `${p}${count ? ` ${count}` : ""}` : "Всички"}</Text>
+            </Pressable>
+          );
+        })}
+        <View style={styles.sep} />
+        <Pressable onPress={() => setLocPicker(true)} style={[styles.chip, location && styles.chipLoc]}>
+          <Ionicons name="location" size={13} color={location ? colors.primary : colors.ink2} />
+          <Text style={[styles.chipText, location && { color: colors.primary }]}>{location ? location.label : "Доставка до…"}</Text>
+        </Pressable>
+      </ScrollView>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} keyboardShouldPersistTaps="handled">
+        {[[null, "Всички", "🍽️"], ...CUISINES.filter(([k]) => !status?.cuisines || status.cuisines[k])].map(([k, label, emoji]) => {
+          const active = cuisine === k;
+          return (
+            <Pressable key={String(k)} onPress={() => setCuisine(active && k ? null : k)} style={[styles.chip, active && styles.chipActive]}>
+              <Text style={[styles.chipText, active && { color: "#fff" }]}>
+                {emoji} {label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
     </View>
   );
 
-  const platformsLine = status ? Object.entries(status.platforms).map(([p, n]) => `${p} ${n}`).join(" · ") : "";
+  // ---- body ---------------------------------------------------------------
+  const whereLine = location ? ` · доставка до ${location.label}` : "";
+  const header =
+    target === "dishes"
+      ? q.length >= 2
+        ? `${visibleDishes.length} ястия за „${q}“ · най-евтино първо${whereLine}`
+        : ""
+      : target === "deals"
+      ? `${visibleDishes.length} ястия с намаление${platform ? ` в ${platform}` : ""}${cuisine ? ` · ${CUISINE_LABEL[cuisine]}` : ""} · най-голяма отстъпка първо${whereLine}`
+      : `${visibleRestaurants.length} ресторанта${q ? ` за „${q}“` : ""}${cuisine ? ` · ${CUISINE_LABEL[cuisine]}` : ""}${whereLine}`;
 
   let body;
   if (error) body = <EmptyState icon="warning-outline" title="Грешка" subtitle={error} actionLabel="Опитай пак" onAction={retry} />;
-  else if (loading && restaurants.length === 0 && dishes.length === 0) body = <EmptyState loading title={isSearching ? `Търсим „${query.trim()}“ в Wolt, Glovo и Bolt…` : "Зареждаме ресторантите във Варна…"} />;
-  else if (status && status.dishes === 0) body = <EmptyState icon="restaurant-outline" title="Менютата още се събират" subtitle="Първото изтегляне на ресторантите отнема няколко минути след стартиране на сървъра." actionLabel="Опитай пак" onAction={retry} />;
+  else if (status && status.dishes === 0) body = <EmptyState icon="restaurant-outline" title="Менютата още се събират" subtitle="Първото изтегляне на ресторантите отнема 20-30 минути след стартиране на сървъра." actionLabel="Опитай пак" onAction={retry} />;
+  else if (target === "dishes" && q.length < 2)
+    body = (
+      <View style={styles.hint}>
+        <Ionicons name="search-outline" size={34} color={colors.ink3} />
+        <Text style={styles.hintTitle}>Какво ти се яде?</Text>
+        <Text style={styles.hintSub}>Напиши ястие горе - ще го намерим във всички ресторанти на Wolt, Glovo и Bolt, най-евтиното първо.</Text>
+        <View style={styles.popular}>
+          {POPULAR_DISHES.map((p) => (
+            <Pressable key={p} onPress={() => onTarget?.("dishes", p)} style={styles.popChip}>
+              <Text style={styles.popText}>{p}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    );
+  else if (loading && restaurants.length === 0 && dishes.length === 0) body = <EmptyState loading title={q ? `Търсим „${q}“…` : "Зареждаме ресторантите във Варна…"} />;
 
-  const data = isSearching
-    ? [...restaurants.map((g) => ({ type: "group", g })), ...dishes.map((d) => ({ type: "dish", d }))]
-    : view === "deals"
-    ? dishes.map((d) => ({ type: "dish", d }))
-    : restaurants.map((g) => ({ type: "group", g }));
-
-  const header = isSearching
-    ? `${restaurants.length ? `${restaurants.length} ресторанта · ` : ""}${dishes.length} ястия за „${query.trim()}“ · най-евтино първо`
-    : view === "deals"
-    ? `${dishes.length} ястия с намаление${platform ? ` в ${platform}` : " в Wolt / Glovo / Bolt"} · най-голяма отстъпка първо`
-    : `${restaurants.length} ресторанта във Варна${platformsLine ? ` · ${platformsLine}` : ""}`;
+  const data = target === "restaurants" ? visibleRestaurants.map((g) => ({ type: "group", g })) : visibleDishes.map((d) => ({ type: "dish", d }));
 
   return (
     <View style={{ flex: 1 }}>
-      {platformBar}
       {toolbar}
       {body || (
         <FlatList
@@ -225,20 +306,21 @@ export default function FoodScreen({ query }) {
             </View>
           }
           ListEmptyComponent={
-            loading ? null : view === "deals" && !isSearching ? (
-              <EmptyState icon="pricetag-outline" title="Няма намаления в момента" subtitle={platform ? `${platform} не показва зачеркнати цени днес. Виж „Сравни всички“.` : "Платформите не показват зачеркнати цени днес."} />
+            loading ? null : target === "deals" ? (
+              <EmptyState icon="pricetag-outline" title="Няма намаления тук" subtitle={platform === "Bolt" ? "Bolt показва отстъпки само на влезли потребители (Bolt Plus / лични кампании) - без вход няма публични." : "Смени платформата или категорията."} />
             ) : (
-              <EmptyState icon="restaurant-outline" title="Нищо намерено" subtitle="Опитай „пица“, „бургер“, „дюнер“ или име на ресторант - „небесна“." />
+              <EmptyState icon="restaurant-outline" title="Нищо намерено" subtitle={location ? `Няма такива ресторанти, които доставят до ${location.label}.` : "Опитай друга дума или категория."} />
             )
           }
           renderItem={({ item }) => {
-            if (item.type === "dish") return <DishRow d={item.d} saved={saved} onOpen={() => open(item.d.restaurant_url)} onCompare={() => setCompare(item.d)} />;
-            return <RestaurantCard g={item.g} onPress={() => setSelected(item.g.group_key)} />;
+            if (item.type === "dish") return <DishRow d={item.d} saved={saved} at={atPoint(nearby, item.d.platform, item.d.restaurant_external_id)} onOpen={() => open(item.d.restaurant_url)} onCompare={() => setCompare(item.d)} />;
+            return <RestaurantCard g={item.g} nearby={nearby} onPress={() => setSelected(item.g.group_key)} />;
           }}
         />
       )}
-      <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} saved={saved} />
-      <CompareSheet dish={compare} onClose={() => setCompare(null)} platform={platform} saved={saved} />
+      <RestaurantSheet groupKey={selected} onClose={() => setSelected(null)} platform={platform} saved={saved} nearby={nearby} />
+      <CompareSheet dish={compare} onClose={() => setCompare(null)} saved={saved} />
+      <LocationSheet visible={locPicker} current={location} onClose={() => setLocPicker(false)} onPick={pickLocation} />
     </View>
   );
 }
@@ -252,7 +334,13 @@ function DiscountTag({ d }) {
   );
 }
 
-function DishRow({ d, saved, onOpen, onCompare }) {
+const deliveryText = (at, fallbackMin, fallbackFee) => {
+  const min = at?.minutes ?? fallbackMin;
+  const fee = at?.fee ?? fallbackFee;
+  return `${min ? ` · ${min} мин` : ""}${fee != null ? ` · доставка ${money(fee)}` : ""}`;
+};
+
+function DishRow({ d, saved, at, onOpen, onCompare }) {
   return (
     <Pressable onPress={onCompare} style={({ pressed }) => [styles.card, pressed && { opacity: 0.85 }]}>
       <View style={styles.thumb}>{d.image_url ? <Image source={{ uri: d.image_url }} style={styles.img} /> : <Ionicons name="fast-food-outline" size={22} color={colors.ink3} />}</View>
@@ -262,8 +350,7 @@ function DishRow({ d, saved, onOpen, onCompare }) {
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           {d.restaurant_name}
-          {d.delivery_minutes ? ` · ${d.delivery_minutes} мин` : ""}
-          {d.delivery_fee != null ? ` · доставка ${money(d.delivery_fee)}` : ""}
+          {deliveryText(at, d.delivery_minutes, d.delivery_fee)}
         </Text>
         <View style={{ flexDirection: "row", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
           <PlatformBadge platform={d.platform} />
@@ -287,9 +374,12 @@ function DishRow({ d, saved, onOpen, onCompare }) {
   );
 }
 
-function RestaurantCard({ g, onPress }) {
+function RestaurantCard({ g, nearby, onPress }) {
   const best = g.listings.reduce((a, l) => (a == null || (l.rating || 0) > (a.rating || 0) ? l : a), null);
   const platforms = [...new Set(g.listings.map((l) => l.platform))];
+  // at the chosen point: cheapest delivery among platforms that deliver there
+  const quotes = g.listings.map((l) => ({ l, at: atPoint(nearby, l.platform, l.external_id) })).filter((x) => x.at?.fee != null);
+  const cheapest = quotes.length ? quotes.reduce((a, b) => (b.at.fee < a.at.fee ? b : a)) : null;
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}>
       <View style={styles.thumb}>{g.image_url ? <Image source={{ uri: g.image_url }} style={styles.img} /> : <Ionicons name="restaurant-outline" size={22} color={colors.ink3} />}</View>
@@ -299,14 +389,14 @@ function RestaurantCard({ g, onPress }) {
         </Text>
         <Text style={styles.meta} numberOfLines={1}>
           {best?.rating ? `★ ${best.rating}` : ""}
-          {best?.delivery_minutes ? ` · ${best.delivery_minutes} мин` : ""}
-          {g.tags.length ? ` · ${g.tags.slice(0, 3).join(", ")}` : ""}
+          {cheapest ? ` · ${cheapest.at.minutes ? `${cheapest.at.minutes} мин · ` : ""}доставка ${money(cheapest.at.fee)} (${cheapest.l.platform})` : best?.delivery_minutes ? ` · ${best.delivery_minutes} мин` : ""}
+          {(g.cuisines || []).length ? ` · ${g.cuisines.slice(0, 3).map((c) => CUISINE_LABEL[c] || c).join(" ")}` : ""}
         </Text>
         <View style={{ flexDirection: "row", gap: 6, flexWrap: "wrap", alignItems: "center" }}>
           {platforms.map((p) => (
             <PlatformBadge key={p} platform={p} />
           ))}
-          {g.cheapest_delivery_platform && platforms.length > 1 && <Text style={styles.cheap}>най-евтина доставка: {g.cheapest_delivery_platform}</Text>}
+          {!cheapest && g.cheapest_delivery_platform && platforms.length > 1 && <Text style={styles.cheap}>най-евтина доставка: {g.cheapest_delivery_platform}</Text>}
         </View>
       </View>
       <Ionicons name="chevron-forward" size={18} color={colors.ink3} />
@@ -314,8 +404,39 @@ function RestaurantCard({ g, onPress }) {
   );
 }
 
+function LocationSheet({ visible, current, onClose, onPick }) {
+  const insets = useSafeAreaInsets();
+  if (!visible) return null;
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+      <Pressable style={styles.backdrop} onPress={onClose} />
+      <View style={[styles.sheet, { paddingBottom: insets.bottom + 12, height: "70%" }]}>
+        <View style={styles.handle} />
+        <Text style={styles.sheetTitle}>Докъде да доставят?</Text>
+        <Text style={styles.dishDesc}>Таксата, времето и дали изобщо доставят зависят от адреса. Проверяваме на живо в Wolt и Bolt за избрания квартал; Glovo няма публична проверка по адрес.</Text>
+        <ScrollView contentContainerStyle={{ paddingTop: 10, gap: 6 }}>
+          <Pressable onPress={() => onPick(null)} style={[styles.locRow, !current && styles.locRowActive]}>
+            <Ionicons name="earth-outline" size={18} color={!current ? colors.primary : colors.ink2} />
+            <Text style={[styles.locText, !current && { color: colors.primary }]}>Без адрес - покажи всичко</Text>
+          </Pressable>
+          {DISTRICTS.map(([label, lat, lng]) => {
+            const active = current?.label === label;
+            return (
+              <Pressable key={label} onPress={() => onPick({ label, lat, lng })} style={[styles.locRow, active && styles.locRowActive]}>
+                <Ionicons name="location-outline" size={18} color={active ? colors.primary : colors.ink2} />
+                <Text style={[styles.locText, active && { color: colors.primary }]}>{label}</Text>
+                {active ? <Ionicons name="checkmark" size={18} color={colors.primary} /> : null}
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+}
+
 /** The same dish in other restaurants / platforms, cheapest first. */
-function CompareSheet({ dish, onClose, platform, saved }) {
+function CompareSheet({ dish, onClose, saved }) {
   const insets = useSafeAreaInsets();
   const [rows, setRows] = useState(null);
   useEffect(() => {
@@ -384,20 +505,23 @@ function CompareSheet({ dish, onClose, platform, saved }) {
   );
 }
 
-function RestaurantSheet({ groupKey, onClose, platform, saved }) {
+function RestaurantSheet({ groupKey, onClose, platform, saved, nearby }) {
   const insets = useSafeAreaInsets();
   const [detail, setDetail] = useState(null);
   const [cat, setCat] = useState(null);
+  const [kind, setKind] = useState(null);
   useEffect(() => {
     setDetail(null);
     setCat(null);
+    setKind(null);
     if (groupKey) getRestaurant(groupKey).then(setDetail).catch(() => setDetail({ error: true }));
   }, [groupKey]);
   if (!groupKey) return null;
   // when a single platform is selected, show only that platform's prices
   const dishes = (detail?.dishes || [])
     .map((d) => (platform ? { ...d, offers: d.offers.filter((o) => o.platform === platform) } : d))
-    .filter((d) => d.offers.length && (!cat || d.offers.some((o) => o.category === cat)));
+    .filter((d) => d.offers.length && (!cat || d.offers.some((o) => o.category === cat)) && (!kind || d.offers.some((o) => (o.kind || "main") === kind)));
+  const kindsPresent = new Set((detail?.dishes || []).flatMap((d) => d.offers.map((o) => o.kind || "main")));
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <Pressable style={styles.backdrop} onPress={onClose} />
@@ -410,26 +534,37 @@ function RestaurantSheet({ groupKey, onClose, platform, saved }) {
         ) : (
           <>
             <Text style={styles.sheetTitle}>{detail.group.name}</Text>
+            {(detail.group.cuisines || []).length ? <Text style={[styles.dishDesc, { marginBottom: 6 }]}>{detail.group.cuisines.map((c) => CUISINE_LABEL[c] || c).join("  ")}</Text> : null}
             <View style={{ flexDirection: "row", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
               {detail.group.listings
                 .filter((l) => !platform || l.platform === platform)
-                .map((l) => (
-                  <Pressable key={`${l.platform}-${l.id}`} onPress={() => open(l.url)} style={styles.platformBtn}>
-                    <PlatformBadge platform={l.platform} size="lg" />
-                    <Text style={styles.platformMeta}>
-                      {l.rating ? `★ ${l.rating}` : ""}
-                      {l.delivery_minutes ? ` · ${l.delivery_minutes} мин` : ""}
-                      {l.delivery_fee != null ? ` · ${money(l.delivery_fee)} доставка` : ""}
-                    </Text>
-                    <Ionicons name="open-outline" size={14} color={colors.ink2} />
-                  </Pressable>
-                ))}
+                .map((l) => {
+                  const at = atPoint(nearby, l.platform, l.external_id);
+                  const no = at && !at.delivers;
+                  return (
+                    <Pressable key={`${l.platform}-${l.id}`} onPress={() => open(l.url)} style={[styles.platformBtn, no && { opacity: 0.5 }]}>
+                      <PlatformBadge platform={l.platform} size="lg" />
+                      <Text style={styles.platformMeta}>
+                        {l.rating ? `★ ${l.rating}` : ""}
+                        {no ? " · не доставя до теб" : deliveryText(at, l.delivery_minutes, l.delivery_fee)}
+                      </Text>
+                      <Ionicons name="open-outline" size={14} color={colors.ink2} />
+                    </Pressable>
+                  );
+                })}
             </View>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 8 }}>
+              {KINDS.filter((k) => !k.key || kindsPresent.has(k.key)).map((k) => (
+                <Pressable key={String(k.key)} onPress={() => setKind(k.key)} style={[styles.catChip, kind === k.key && styles.catChipActive]}>
+                  <Text style={[styles.catText, kind === k.key && { color: "#fff" }]}>{k.label}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
             {detail.categories.length > 1 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 6, paddingBottom: 8 }}>
                 {[null, ...detail.categories].map((c) => (
                   <Pressable key={String(c)} onPress={() => setCat(c)} style={[styles.catChip, cat === c && styles.catChipActive]}>
-                    <Text style={[styles.catText, cat === c && { color: "#fff" }]}>{c || "Всички"}</Text>
+                    <Text style={[styles.catText, cat === c && { color: "#fff" }]}>{c || "Всички секции"}</Text>
                   </Pressable>
                 ))}
               </ScrollView>
@@ -437,6 +572,7 @@ function RestaurantSheet({ groupKey, onClose, platform, saved }) {
             <FlatList
               data={dishes}
               keyExtractor={(d, i) => d.name + i}
+              ListEmptyComponent={<EmptyState icon="fast-food-outline" title="Нищо в тази категория" />}
               renderItem={({ item: d }) => (
                 <View style={styles.dishRow}>
                   <View style={{ flex: 1 }}>
@@ -471,28 +607,34 @@ function RestaurantSheet({ groupKey, onClose, platform, saved }) {
 }
 
 const styles = StyleSheet.create({
-  pfBar: { flexDirection: "row", gap: 6, paddingHorizontal: 16, paddingTop: 10, paddingBottom: 8, backgroundColor: colors.surface },
-  pfBtn: { flex: 1, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: "center" },
-  pfBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
-  toolbar: { paddingHorizontal: 16, paddingBottom: 8, gap: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
-  viewRow: { flexDirection: "row", gap: 6 },
-  viewBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 8, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
-  viewBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
-  viewBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
-  kindChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
-  kindChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  kindText: { fontSize: 12, fontWeight: "700", color: colors.ink2 },
+  toolbar: { paddingTop: 8, paddingBottom: 6, gap: 8, backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border },
+  targetRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16 },
+  targetBtn: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 5, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt },
+  targetBtnActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  targetText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
+  chipRow: { gap: 6, paddingHorizontal: 16, alignItems: "center" },
+  chip: { flexDirection: "row", alignItems: "center", gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipLoc: { backgroundColor: colors.primarySoft, borderColor: colors.primarySoft },
+  chipText: { fontSize: 12, fontWeight: "700", color: colors.ink2 },
+  sep: { width: 1, height: 20, backgroundColor: colors.border, marginHorizontal: 2 },
   list: { paddingHorizontal: 16, paddingTop: 10, paddingBottom: 24 },
-  labelRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10 },
+  labelRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 10, minHeight: 18 },
   label: { flex: 1, fontSize: 13, color: colors.ink2 },
   sub: { fontSize: 12, fontWeight: "800", color: colors.ink2, textTransform: "uppercase", letterSpacing: 0.4, marginTop: 10, marginBottom: 4 },
+  hint: { alignItems: "center", gap: 8, paddingVertical: 36, paddingHorizontal: 24 },
+  hintTitle: { fontSize: 17, fontWeight: "800", color: colors.ink },
+  hintSub: { fontSize: 13, color: colors.ink2, textAlign: "center", lineHeight: 19 },
+  popular: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 6, marginTop: 8 },
+  popChip: { paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.border },
+  popText: { fontSize: 13, color: colors.ink, fontWeight: "600" },
   card: { flexDirection: "row", alignItems: "center", gap: 12, backgroundColor: colors.surface, borderRadius: radius.lg, padding: 12, marginBottom: 10, ...shadow.card },
-  thumb: { width: 64, height: 64, borderRadius: 12, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
+  thumb: { width: 60, height: 60, borderRadius: 12, backgroundColor: colors.surfaceAlt, alignItems: "center", justifyContent: "center", overflow: "hidden" },
   img: { width: "100%", height: "100%" },
   name: { fontSize: 15, fontWeight: "700", color: colors.ink, lineHeight: 20 },
   meta: { fontSize: 12, color: colors.ink3 },
   cheap: { fontSize: 11, color: colors.success, fontWeight: "700" },
-  price: { fontSize: 18, fontWeight: "800", color: colors.ink },
+  price: { fontSize: 17, fontWeight: "800", color: colors.ink },
   old: { fontSize: 12, color: colors.ink3, textDecorationLine: "line-through" },
   orderBtn: { backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5 },
   orderText: { color: "#fff", fontSize: 11, fontWeight: "800" },
@@ -505,12 +647,15 @@ const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: "rgba(11,18,32,0.45)" },
   sheet: { backgroundColor: colors.surface, borderTopLeftRadius: 26, borderTopRightRadius: 26, paddingHorizontal: 20, paddingTop: 8, height: "88%" },
   handle: { alignSelf: "center", width: 44, height: 5, borderRadius: 3, backgroundColor: colors.border, marginBottom: 12 },
-  sheetTitle: { fontSize: 20, fontWeight: "800", color: colors.ink, marginBottom: 8 },
+  sheetTitle: { fontSize: 20, fontWeight: "800", color: colors.ink, marginBottom: 6 },
   platformBtn: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 10, paddingVertical: 8, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
   platformMeta: { fontSize: 12, color: colors.ink2 },
   catChip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
   catChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
   catText: { fontSize: 12, fontWeight: "700", color: colors.ink2 },
+  locRow: { flexDirection: "row", alignItems: "center", gap: 10, paddingVertical: 12, paddingHorizontal: 12, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  locRowActive: { backgroundColor: colors.primarySoft, borderColor: colors.primarySoft },
+  locText: { flex: 1, fontSize: 14, fontWeight: "600", color: colors.ink },
   dishRow: { flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   cmpRow: { flexDirection: "row", alignItems: "center", gap: 8, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.border },
   dishName: { fontSize: 14, fontWeight: "600", color: colors.ink },

@@ -71,12 +71,14 @@ export const getSimilar = (id, opts) => request(`/api/offers/${id}/similar`, opt
 
 // ---- restaurants (Varna delivery comparison) ------------------------------
 export const getFoodStatus = (opts) => request("/api/food/status", opts);
-export const listRestaurants = ({ q, tag, platform, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, platform, limit })}`, { signal });
+export const listRestaurants = ({ q, tag, platform, cuisine, limit = 60, signal } = {}) => request(`/api/food/restaurants${qs({ q, tag, platform, cuisine, limit })}`, { signal });
 export const getRestaurant = (groupKey, opts) => request(`/api/food/restaurants/${encodeURIComponent(groupKey)}`, opts);
 /** kind: main | side | extra | drink | dessert (add-ons rank below real dishes when omitted) */
-export const searchDishes = (q, { platform, kind, limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, platform, kind, limit })}`, { signal });
+export const searchDishes = (q, { platform, kind, cuisine, limit = 60, signal } = {}) => request(`/api/food/search${qs({ q, platform, kind, cuisine, limit })}`, { signal });
 /** Dishes a platform currently shows discounted (crossed-out old price), biggest discount first. */
-export const getFoodDeals = ({ platform, kind, limit = 100, signal } = {}) => request(`/api/food/deals${qs({ platform, kind, limit })}`, { signal });
+export const getFoodDeals = ({ platform, kind, cuisine, q, limit = 100, signal } = {}) => request(`/api/food/deals${qs({ platform, kind, cuisine, q, limit })}`, { signal });
+/** Live: which Wolt venues / Bolt providers deliver to this point, with the fee and time quoted for it. */
+export const getFoodNearby = (lat, lng, opts) => request(`/api/food/nearby${qs({ lat, lng })}`, opts);
 
 // ---- barcode -------------------------------------------------------------
 export const lookupBarcode = (code, opts) => request(`/api/barcode/${encodeURIComponent(code)}`, opts);
