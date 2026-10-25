@@ -143,6 +143,51 @@ const inject = (platform, cfg, loc) => `
   XMLHttpRequest.prototype.open = function(m, u){ this.__u = u; this.__h = {}; return oOpen.apply(this, arguments); };
   XMLHttpRequest.prototype.setRequestHeader = function(k, v){ if (this.__h) this.__h[k.toLowerCase() === 'authorization' ? 'Authorization' : k] = v; return oSet.apply(this, arguments); };
   XMLHttpRequest.prototype.send = function(b){ var x = this; x.addEventListener('load', function(){ try { handle(x.__u, x.__h, b, x.responseText, false); } catch(e){} }); return oSend.apply(this, arguments); };
+  // Glovo renders everything on the server: no API responses to watch, so read the page itself (cards, item rows).
+  function strip(h){ return String(h || '').replace(/\s+/g, ' ').trim(); }
+  function domScan(){
+    if (P !== 'Glovo') return;
+    var NOISE = /^(ново|new|нов|популяр|popular|top|топ)!?$/i;
+    var provs = [], dishes = [], seen = {};
+    var cards = document.querySelectorAll('a[href*="/stores/"]');
+    for (var i = 0; i < cards.length; i++) {
+      var a = cards[i]; var href = a.getAttribute('href') || ''; var mm = /\\/stores\\/([a-z0-9-]+)/.exec(href); if (!mm || seen[mm[1]]) continue;
+      var tags = a.querySelectorAll('[data-style="promotion"]'); var labels = [];
+      for (var j = 0; j < tags.length; j++) { var t = strip(tags[j].textContent); if (t && !NOISE.test(t)) labels.push(t); }
+      if (!labels.length) continue; seen[mm[1]] = 1;
+      var h = a.querySelector('h3, h2, [class*="title"], [class*="Title"]'); var im = a.querySelector('img');
+      provs.push({ id: mm[1], slug: mm[1], name: strip(h ? h.textContent : mm[1]), label: labels.join(' · ').slice(0, 140), image_url: im ? im.getAttribute('src') : null, fee: null, minutes: null });
+    }
+    var slug = (/\\/stores\\/([a-z0-9-]+)/.exec(location.pathname) || [])[1] || '';
+    var rname = strip((document.querySelector('h1, h2') || {}).textContent || '');
+    var rows = document.querySelectorAll('[class*="ItemRow_itemRow"]');
+    for (var r = 0; r < rows.length; r++) {
+      var row = rows[r]; var tt = row.querySelector('[class*="ItemRow_titleContainer"]'); var pc = row.querySelector('[class*="ItemRow_priceContainer"]');
+      if (!tt || !pc) continue;
+      var prices = []; var re = /(\\d+)[,.](\\d{2})\\s*€/g; var pm; var ptxt = pc.textContent || '';
+      while ((pm = re.exec(ptxt))) prices.push(parseInt(pm[1], 10) + parseInt(pm[2], 10) / 100);
+      var ptags = row.querySelectorAll('[data-style="promotion"]'); var pl = [];
+      for (var k = 0; k < ptags.length; k++) { var t2 = strip(ptags[k].textContent); if (t2 && !NOISE.test(t2)) pl.push(t2); }
+      if (!prices.length) continue;
+      var price = Math.min.apply(null, prices); var orig = prices.length > 1 && Math.max.apply(null, prices) > price ? Math.max.apply(null, prices) : null;
+      if (!orig && !pl.length) continue;
+      var im2 = row.querySelector('img');
+      dishes.push({ id: slug + ':' + strip(tt.textContent), provider_id: slug, slug: slug, restaurant: rname, name: strip(tt.textContent), price: price, original: orig, promo: pl.join(' · ').slice(0, 120), image_url: im2 ? im2.getAttribute('src') : null });
+    }
+    var authed = false;
+    var els = document.querySelectorAll('a, button');
+    for (var e = 0; e < els.length; e++) { var tx = (els[e].textContent || '') + ' ' + (els[e].getAttribute('href') || ''); if (/профил|profile|account|поръчки|orders/i.test(tx)) { authed = true; break; } }
+    post({ type: 'providers', platform: P, authed: authed, total: cards.length, promos: provs, dishes: dishes, url: location.href });
+    post({ type: 'session', platform: P, kind: 'html', headers: {}, listReq: { url: 'https://glovoapp.com/bg/bg/varna/categories/hrana_1', method: 'GET' }, menuTpl: 'https://glovoapp.com/bg/bg/varna/stores/{slug}', qs: '' });
+  }
+  if (P === 'Glovo') {
+    var timer = null;
+    function sched(){ clearTimeout(timer); timer = setTimeout(function(){ try { domScan(); } catch(e){} }, 1500); }
+    window.addEventListener('load', sched);
+    document.addEventListener('DOMContentLoaded', sched);
+    try { new MutationObserver(sched).observe(document.documentElement, { childList: true, subtree: true }); } catch(e){}
+    setTimeout(sched, 3000);
+  }
   post({ type: 'ready', platform: P });
 })(); true;
 `;
@@ -191,7 +236,7 @@ export function useAccountWebView(platform, location, onUpdate, onSession) {
       return;
     }
     if (m.type === "session" && m.headers && m.listReq) {
-      saveAccountSession(platform, { headers: m.headers, listReq: m.listReq, menuTpl: m.menuTpl || null, qs: m.qs || null, connectedAt: new Date().toISOString(), expired: false });
+      saveAccountSession(platform, { kind: m.kind || "json", headers: m.headers, listReq: m.listReq, menuTpl: m.menuTpl || null, qs: m.qs || null, connectedAt: new Date().toISOString(), expired: false });
       onSession?.(platform);
       return;
     }

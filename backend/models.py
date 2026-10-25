@@ -201,10 +201,13 @@ class OfferRead(SQLModel):
     is_mock: bool
     score: Optional[int] = None
 
+    upcoming: bool = False                          # valid_from is in the future (next leaflet) - not on the shelf yet
+
     @classmethod
     def from_offer(cls, o: Offer, score: Optional[int] = None) -> "OfferRead":
         data = o.model_dump()
         data["tags"] = [t for t in (o.tags or "").split(",") if t]
+        data["upcoming"] = bool(o.valid_from and o.valid_from > date.today())
         return cls(**data, score=score)
 
 
@@ -229,10 +232,13 @@ class SimilarResponse(SQLModel):
     same_elsewhere: list[OfferRead]                 # the same product in other stores
     similar: list[OfferRead]                        # similar products (same kind), cheapest first
     query: str                                      # the core words we matched on (for the UI label)
+    upcoming: list[OfferRead] = []                  # the same product in the store's NEXT leaflet (valid_from in the future)
 
 
 class StoreStatus(SQLModel):
     store: str
+    leaflet_url: Optional[str] = None               # the store's own leaflet page
+    upcoming: int = 0                               # items already known from the next leaflet
     offers: int                                     # promotions
     regular: int = 0                                # regular-price catalogue items (Metro, Lidl)
     is_mock: bool

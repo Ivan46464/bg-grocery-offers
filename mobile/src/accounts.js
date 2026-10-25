@@ -10,7 +10,7 @@
  * session expired: the account is marked "reconnect" and the user signs in
  * again once.
  */
-import { scan } from "./dealScan";
+import { glovoDishesFromHtml, glovoStoresFromHtml, scan } from "./dealScan";
 import { loadAccountSessions, saveAccountDeals, saveAccountSession } from "./storage";
 
 export const REFRESH_AFTER_MS = 30 * 60 * 1000;
@@ -36,7 +36,53 @@ async function call(req, headers, timeoutMs = 25000) {
 }
 
 /** Replay the stored session for one platform. Returns the stored deals record (also persisted). */
+async function fetchText(url, headers, timeoutMs = 25000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { headers: { ...(headers || {}), Accept: "text/html" }, signal: controller.signal });
+    return { status: res.status, text: await res.text() };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/** Glovo: the pages are server-rendered with the signed-in session (cookies are shared with the WebView on Android). */
+async function refreshGlovoHtml(platform, session) {
+  const base = session.listReq?.url || "https://glovoapp.com/bg/bg/varna/categories/hrana_1";
+  const first = await fetchText(base, session.headers);
+  if (first.status === 401 || first.status === 403) {
+    const err = new Error("expired");
+    err.expired = true;
+    throw err;
+  }
+  const providers = {};
+  for (const p of glovoStoresFromHtml(first.text)) providers[p.id] = p;
+  // the listing shows 50 stores per page: walk the cuisine pages too
+  const types = [...new Set([...first.text.matchAll(/\?type=([a-z0-9-]+_\d+)/g)].map((m) => m[1]))].slice(0, 12);
+  for (const t of types) {
+    try {
+      const page = await fetchText(`${base.split("?")[0]}?type=${t}`, session.headers, 20000);
+      for (const p of glovoStoresFromHtml(page.text)) providers[p.id] = p;
+    } catch {}
+  }
+  const dishes = {};
+  const targets = Object.values(providers).slice(0, 25);
+  for (const p of targets) {
+    try {
+      const page = await fetchText(`https://glovoapp.com/bg/bg/varna/stores/${p.slug}`, session.headers, 20000);
+      for (const d of glovoDishesFromHtml(page.text, p.slug, p.name)) dishes[d.id] = d;
+    } catch {}
+  }
+  const total = (first.text.match(/\/bg\/bg\/varna\/stores\//g) || []).length;
+  const rec = { platform, capturedAt: new Date().toISOString(), authed: true, total, providers: Object.values(providers), dishes: Object.values(dishes) };
+  await saveAccountDeals(platform, rec);
+  await saveAccountSession(platform, { ...session, expired: false, checkedAt: rec.capturedAt });
+  return rec;
+}
+
 export async function refreshAccount(platform, session, location) {
+  if (session?.kind === "html") return refreshGlovoHtml(platform, session);
   if (!session?.headers || !session?.listReq) throw new Error("no session");
   const loc = location || { lat: 43.2141, lng: 27.9147 };
   const listReq = { ...session.listReq };
@@ -84,7 +130,8 @@ export async function dueAccounts(accounts, force = false) {
   const sessions = await loadAccountSessions();
   return Object.keys(sessions).filter((p) => {
     const s = sessions[p];
-    if (!s?.headers || !s?.listReq || s.expired) return false;
+    if (!s || s.expired) return false;
+    if (s.kind !== "html" && (!s.headers || !s.listReq)) return false;
     const last = accounts?.[p]?.capturedAt ? new Date(accounts[p].capturedAt).getTime() : 0;
     return force || Date.now() - last > REFRESH_AFTER_MS;
   });

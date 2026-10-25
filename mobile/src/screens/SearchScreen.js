@@ -3,7 +3,7 @@
  * results list. Handles the cold start of the free backend gracefully.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { FlatList, Keyboard, Pressable, StyleSheet, Text, View } from "react-native";
+import { FlatList, Keyboard, Linking, Pressable, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { ApiError, createWatch, getTags, listOffers, searchOffers } from "../api";
 import Chips from "../components/Chips";
@@ -17,7 +17,7 @@ import ServerWaking from "../components/ServerWaking";
 import { useToast } from "../components/Toast";
 import ErrorBoundary from "../components/ErrorBoundary";
 import FoodScreen from "./FoodScreen";
-import { SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
+import { LEAFLETS, SEARCH_DEBOUNCE_MS, STORES, STORE_ORDER } from "../config";
 import useColdStart from "../hooks/useColdStart";
 import { addOfferToCart, cartItemId, getDeviceToken, loadCart, loadPushToken, onCartChange } from "../storage";
 import { colors, radius } from "../theme";
@@ -216,6 +216,13 @@ export default function SearchScreen({ navigation }) {
           {ready && (
             <View style={styles.toolbar}>
               {/* store buttons with full names + "Всички" */}
+              {store && LEAFLETS[store] ? (
+                <Pressable onPress={() => Linking.openURL(LEAFLETS[store]).catch(() => {})} style={styles.leafletBtn}>
+                  <Ionicons name="newspaper-outline" size={14} color={STORES[store].bg} />
+                  <Text style={[styles.leafletText, { color: STORES[store].bg }]}>Брошурата на {store}</Text>
+                  <Ionicons name="open-outline" size={13} color={STORES[store].bg} />
+                </Pressable>
+              ) : null}
               <View style={styles.storeRow}>
                 {[{ key: null, label: "Всички", bg: colors.ink, fg: "#fff" }, ...STORE_ORDER.map((s) => ({ key: s, label: s, bg: STORES[s].bg, fg: STORES[s].fg }))].map((b) => {
                   const active = store === b.key;
@@ -260,6 +267,8 @@ const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   toolbar: { backgroundColor: colors.surface, borderBottomWidth: 1, borderBottomColor: colors.border, paddingTop: 10 },
   storeRow: { flexDirection: "row", alignItems: "center", gap: 6, paddingHorizontal: 16 },
+  leafletBtn: { flexDirection: "row", alignItems: "center", gap: 5, alignSelf: "flex-start", marginLeft: 16, marginBottom: 8, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },
+  leafletText: { fontSize: 12, fontWeight: "700" },
   storeBtn: { flex: 1, paddingVertical: 9, borderRadius: radius.md, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surfaceAlt, alignItems: "center" },
   storeBtnText: { fontSize: 12, fontWeight: "800", color: colors.ink2 },
   promoRow: { flexDirection: "row", gap: 6, paddingHorizontal: 16, paddingTop: 8 },

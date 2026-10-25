@@ -3,6 +3,7 @@ import { Image, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View, u
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getOfferHistory, getSimilar } from "../api";
+import { LEAFLETS } from "../config";
 import { colors, money, radius } from "../theme";
 import { LowBadge, PromoBadges } from "./OfferCard";
 import Sparkline from "./Sparkline";
@@ -135,6 +136,37 @@ export default function OfferSheet({ offer: initial, onClose, onAddToCart, onWat
             </>
           )}
 
+          {/* the same product in the store's next leaflet (scraped 2 days before the current one ends) */}
+          {similar?.upcoming?.length > 0 && (
+            <>
+              <Text style={styles.section}>Следваща брошура · {offer.store}</Text>
+              {similar.upcoming.map((u) => {
+                const next = u.effective_price || u.discounted_price;
+                const diff = next - shown;
+                return (
+                  <Pressable key={u.id} onPress={() => (u.product_url ? Linking.openURL(u.product_url).catch(() => {}) : null)} style={styles.nextRow}>
+                    <Ionicons name="calendar-outline" size={16} color={colors.info} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.nextTitle} numberOfLines={2}>
+                        {u.product_name}
+                      </Text>
+                      <Text style={styles.nextMeta}>
+                        от {u.valid_from ? u.valid_from.split("-").reverse().slice(0, 2).join(".") : "скоро"}
+                        {u.valid_to ? ` до ${u.valid_to.split("-").reverse().slice(0, 2).join(".")}` : ""}
+                        {u.promo_label ? ` · ${u.promo_label}` : ""}
+                      </Text>
+                    </View>
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text style={[styles.nextPrice, diff < 0 && { color: colors.success }, diff > 0 && { color: colors.danger }]}>{money(next)}</Text>
+                      <Text style={styles.nextMeta}>{diff === 0 ? "същата цена" : diff < 0 ? `-${money(-diff)} от сега` : `+${money(diff)} от сега`}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+              <Text style={styles.muted}>Изчакай, ако в следващата брошура е по-евтино.</Text>
+            </>
+          )}
+
           <Text style={styles.section}>Цена през последните 90 дни</Text>
           {history ? <Sparkline points={history.points} width={width - 48} current={offer.discounted_price} /> : <Text style={styles.muted}>Зареждане…</Text>}
           {offer.is_lowest_90d === false && offer.lowest_90d != null && (
@@ -145,6 +177,7 @@ export default function OfferSheet({ offer: initial, onClose, onAddToCart, onWat
             <Action icon="cart" label="В количката" onPress={() => onAddToCart?.(offer)} primary />
             <Action icon="notifications" label="Следи цената" onPress={() => onWatch?.(offer)} />
             {offer.product_url ? <Action icon="open-outline" label="Магазин" onPress={() => Linking.openURL(offer.product_url).catch(() => {})} /> : null}
+            {LEAFLETS[offer.store] ? <Action icon="newspaper-outline" label="Брошура" onPress={() => Linking.openURL(LEAFLETS[offer.store]).catch(() => {})} /> : null}
           </View>
         </ScrollView>
       </View>
@@ -203,6 +236,10 @@ const styles = StyleSheet.create({
   simName: { fontSize: 13, color: colors.ink, marginBottom: 3 },
   simPrice: { fontWeight: "800", color: colors.ink },
   muted: { color: colors.ink3, fontSize: 13 },
+  nextRow: { flexDirection: "row", alignItems: "center", gap: 10, padding: 10, borderRadius: 12, backgroundColor: colors.infoSoft, marginBottom: 6 },
+  nextTitle: { fontSize: 13, fontWeight: "600", color: colors.ink },
+  nextMeta: { fontSize: 11, color: colors.ink2, marginTop: 2 },
+  nextPrice: { fontSize: 16, fontWeight: "800", color: colors.ink },
   warn: { marginTop: 10, fontSize: 13, color: "#92400E", backgroundColor: colors.accentSoft, padding: 10, borderRadius: 10, lineHeight: 18 },
   actions: { flexDirection: "row", gap: 10, marginTop: 20 },
   action: { flex: 1, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 6, paddingVertical: 12, borderRadius: radius.md, backgroundColor: colors.surfaceAlt, borderWidth: 1, borderColor: colors.border },

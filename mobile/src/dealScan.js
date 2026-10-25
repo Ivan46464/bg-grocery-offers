@@ -71,18 +71,19 @@ export function img(o) {
   } catch {}
   return null;
 }
+const NOISE = /^(ново|new|нов|популяр|popular|top|топ)!?$/i;
 function label(o, keys) {
   const parts = [];
   for (const k of keys) {
     const v = o[k];
     const t = typeof v === "number" ? `-${v}%` : txt(v);
-    if (t && t !== "true") parts.push(t);
+    if (t && t !== "true" && !NOISE.test(t.trim())) parts.push(t);
   }
   if (o.badges) {
     const b = txt(o.badges);
-    if (/%|-|промо|безплат|free/i.test(b)) parts.push(b);
+    if (/%|-\d|промо|безплат|free|отстъп|discount/i.test(b) && !NOISE.test(b.trim())) parts.push(b);
   }
-  return parts.filter(Boolean).join(" · ").slice(0, 140) || "промоция";
+  return parts.filter(Boolean).join(" · ").slice(0, 140);
 }
 const isProvider = (o) =>
   !!(o && typeof o === "object" && !Array.isArray(o) && (o.name || o.title) && (o.slug || o.provider_id || o.id || o.storeId || o.store_id) &&
@@ -116,7 +117,10 @@ export function scan(root, platform, pid = "", pname = "") {
       const keys = dealKeys(o);
       const badge = o.badges ? txt(o.badges) : "";
       all.push({ id: provId(o), slug: o.slug || "", name: txt(o.name || o.title) });
-      if (keys.length || /%|промо|free|безплат/i.test(badge)) provs.push(provOut(o, keys));
+      if (keys.length || /%|промо|free|безплат/i.test(badge)) {
+        const out = provOut(o, keys);
+        if (out.label) provs.push(out); // a "Ново!" badge alone is not a deal
+      }
     } else if (isDish(o)) {
       const ks = dealKeys(o);
       const oldp = oldPriceOf(o, platform);
@@ -138,4 +142,46 @@ export function scan(root, platform, pid = "", pname = "") {
   };
   walk(root, 0);
   return { provs, dishes, nProv, all };
+}
+
+// ---- Glovo renders everything server-side (no JSON to watch): read the HTML the way the site shows it ----
+const strip = (h) => String(h || "").replace(/<[^>]+>/g, " ").replace(/&amp;/g, "&").replace(/&#x27;|&#39;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ").trim();
+const PRICE = /(\d+)[,.](\d{2})\s*€/g;
+/** Store cards on a Glovo listing page -> providers with a promotion tag. */
+export function glovoStoresFromHtml(html) {
+  const provs = [];
+  const seen = new Set();
+  const re = /<a [^>]*href="(\/bg\/bg\/varna\/stores\/([a-z0-9-]+))"[^>]*>([\s\S]*?)<\/a>/g;
+  let m;
+  while ((m = re.exec(html))) {
+    const slug = m[2];
+    if (seen.has(slug)) continue;
+    const block = m[3];
+    const promo = [...block.matchAll(/data-style="promotion"[^>]*>([^<]+)</g)].map((x) => strip(x[1])).filter((t) => t && !NOISE.test(t));
+    if (!promo.length) continue;
+    seen.add(slug);
+    const name = strip((/<h3[^>]*>([\s\S]*?)<\/h3>/.exec(block) || [])[1]) || slug;
+    const img = (/<img[^>]*src="([^"]+)"/.exec(block) || [])[1] || null;
+    provs.push({ id: slug, slug, name, label: promo.join(" · ").slice(0, 140), image_url: img, fee: null, minutes: null });
+  }
+  return provs;
+}
+/** Item rows on a Glovo store page -> dishes with two prices (old > new) or a promotion tag. */
+export function glovoDishesFromHtml(html, slug, name) {
+  const dishes = [];
+  const parts = html.split(/class="[^"]*ItemRow_itemRow[^"]*"/);
+  for (let i = 1; i < parts.length; i++) {
+    const row = parts[i].slice(0, 6000);
+    const title = strip((/ItemRow_titleContainer[^>]*>([\s\S]*?)<\/div>/.exec(row) || [])[1]);
+    const priceHtml = (/ItemRow_priceContainer[^>]*>([\s\S]*?)<\/div>/.exec(row) || [])[1] || "";
+    const prices = [...priceHtml.matchAll(PRICE)].map((x) => parseInt(x[1], 10) + parseInt(x[2], 10) / 100);
+    const promo = [...row.matchAll(/data-style="promotion"[^>]*>([^<]+)</g)].map((x) => strip(x[1])).filter((t) => t && !NOISE.test(t));
+    if (!title || !prices.length) continue;
+    const price = Math.min(...prices);
+    const original = prices.length > 1 && Math.max(...prices) > price ? Math.max(...prices) : null;
+    if (!original && !promo.length) continue;
+    const img = (/<img[^>]*src="([^"]+)"/.exec(row) || [])[1] || null;
+    dishes.push({ id: `${slug}:${title}`, provider_id: slug, slug, restaurant: name || slug, name: title, price, original, promo: promo.join(" · ").slice(0, 120), image_url: img });
+  }
+  return dishes;
 }

@@ -12,7 +12,7 @@
  * saves a dish to Количка → Ресторанти. "Поръчай" deep-links into the app.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ActivityIndicator, FlatList, Image, Keyboard, Linking, Modal, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, FlatList, Image, Keyboard, Linking, Modal, Pressable, ScrollView, Share, StyleSheet, Text, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { getFoodDeals, getFoodNearby, getFoodStatus, getRestaurant, listRestaurants, searchDishes } from "../api";
@@ -103,6 +103,13 @@ function useSavedIds() {
 
 /** Delivery info for one listing at the user's point: null = unknown (Glovo / no location), else {delivers, fee, minutes, note}. */
 const atPoint = (nearby, platform, externalId) => (nearby && nearby[platform] ? nearby[platform][externalId] || { delivers: false } : null);
+
+const saveCrashSafe = (where, e) => {
+  try {
+    // eslint-disable-next-line global-require
+    require("../storage").saveCrash({ message: String(e?.message || e), stack: String(e?.stack || "").slice(0, 1500), at: new Date().toISOString(), where });
+  } catch {}
+};
 
 export default function FoodScreen({ query, target = "restaurants", onTarget }) {
   const [status, setStatus] = useState(null);
@@ -244,9 +251,13 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
   const retry = () => load(target, q, platform, cuisine);
 
   const pickLocation = (loc) => {
-    setLocation(loc);
-    saveFoodLocation(loc);
-    setLocPicker(false);
+    try {
+      setLocPicker(false);
+      setLocation(loc);
+      saveFoodLocation(loc);
+    } catch (e) {
+      saveCrashSafe("pickLocation", e);
+    }
   };
 
   // apply the delivery point: hide what cannot be delivered there (Glovo listings are kept - no public per-address data)
@@ -380,10 +391,18 @@ export default function FoodScreen({ query, target = "restaurants", onTarget }) 
       {crash ? (
         <View style={styles.crashNote}>
           <Ionicons name="bug-outline" size={16} color={colors.danger} />
-          <Text style={styles.crashText} numberOfLines={3}>
-            Последния път приложението се затвори ({crash.where}): {crash.message}
-          </Text>
-          <Pressable onPress={() => { clearCrash(); setCrash(null); }} hitSlop={8}>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.crashText} numberOfLines={2}>
+              Последния път приложението се затвори ({crash.where}): {crash.message}
+            </Text>
+            <Text style={[styles.crashText, { color: colors.ink3 }]} numberOfLines={4}>
+              {String(crash.stack || "").split("\n").slice(0, 4).join("\n")}
+            </Text>
+          </View>
+          <Pressable onPress={() => Share.share({ message: `BG Оферти crash (${crash.at}, ${crash.where})\n${crash.message}\n${crash.stack || ""}\n${crash.component || ""}` }).catch(() => {})} hitSlop={8} style={{ padding: 4 }}>
+            <Ionicons name="share-social-outline" size={18} color={colors.ink2} />
+          </Pressable>
+          <Pressable onPress={() => { clearCrash(); setCrash(null); }} hitSlop={8} style={{ padding: 4 }}>
             <Ionicons name="close" size={18} color={colors.ink2} />
           </Pressable>
         </View>

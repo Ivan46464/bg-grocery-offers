@@ -36,7 +36,7 @@ import logging
 import os
 import re
 from contextlib import asynccontextmanager
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
@@ -214,9 +214,23 @@ app.add_middleware(
 )
 
 
+LEAFLET_URLS = {
+    "Lidl": "https://www.lidl.bg/l/bg/broshuri",
+    "Kaufland": "https://www.kaufland.bg/broshuri.html",
+    "Billa": "https://www.billa.bg/promocii/sedmichna-broshura",
+    "Metro": "https://www.metro.bg/promocii/broshuri",
+}
+
+
+def _current(stmt):
+    """Offers valid today: items from a leaflet that starts in the future stay out of lists and search."""
+    today = date.today()
+    return stmt.where((Offer.valid_from.is_(None)) | (Offer.valid_from <= today))
+
+
 def _offers_query(store: Optional[str], tag: Optional[str], promo: str = "all"):
     """promo = 'promo' (promotions only) | 'regular' (shelf prices only) | 'all'."""
-    stmt = select(Offer)
+    stmt = _current(select(Offer))
     if store:
         stmt = stmt.where(func.lower(Offer.store) == store.lower())
     if tag:
@@ -230,12 +244,17 @@ def _offers_query(store: Optional[str], tag: Optional[str], promo: str = "all"):
 
 def _store_statuses(session: Session) -> list[StoreStatus]:
     out: list[StoreStatus] = []
+    today = date.today()
     for name in STORE_NAMES:
-        rows = session.exec(select(Offer.is_mock, Offer.scraped_at, Offer.is_promo).where(Offer.store == name)).all()
+        all_rows = session.exec(select(Offer.is_mock, Offer.scraped_at, Offer.is_promo, Offer.valid_from).where(Offer.store == name)).all()
+        upcoming = [r for r in all_rows if r[3] and r[3] > today]
+        rows = [r for r in all_rows if not (r[3] and r[3] > today)]
         promo_rows = [r for r in rows if r[2]]
         out.append(
             StoreStatus(
                 store=name,
+                leaflet_url=LEAFLET_URLS.get(name),
+                upcoming=len(upcoming),
                 offers=len(promo_rows),
                 regular=len(rows) - len(promo_rows),
                 is_mock=bool(rows) and all(r[0] for r in rows),
@@ -346,7 +365,12 @@ def offer_similar(offer_id: int, session: Session = Depends(get_session)):
     offer = session.get(Offer, offer_id)
     if not offer:
         raise HTTPException(404, "Offer not found")
-    others = [o for o in session.exec(select(Offer)).all() if o.id != offer.id]
+    today = date.today()
+    everything = [o for o in session.exec(select(Offer)).all() if o.id != offer.id]
+    others = [o for o in everything if not (o.valid_from and o.valid_from > today)]
+    # the same product in this store's NEXT leaflet (already scraped, not on the shelf yet)
+    future = [o for o in everything if o.store == offer.store and o.valid_from and o.valid_from > today]
+    upcoming = [o for o, _ in match_offers(future, offer.product_name, offer.barcode)] if future else []
     same = [o for o, _ in match_offers(others, offer.product_name, offer.barcode) if o.store != offer.store]
     same_ids = {o.id for o in same}
     # similar: the same KIND of product ("вода" -> other waters, "изворна" ones first), brand dropped
@@ -356,6 +380,7 @@ def offer_similar(offer_id: int, session: Session = Depends(get_session)):
         same_elsewhere=[OfferRead.from_offer(o) for o in same[:10]],
         similar=[OfferRead.from_offer(o, s) for o, s in loose[:20]],
         query=q,
+        upcoming=[OfferRead.from_offer(o) for o in upcoming[:3]],
     )
 
 
@@ -399,7 +424,7 @@ def barcode_lookup(code: str, session: Session = Depends(get_session)):
     similar: list[OfferRead] = []
     if queries:
         exact_ids = {o.id for o in exact}
-        offers = session.exec(select(Offer)).all()
+        offers = session.exec(_current(select(Offer))).all()
         best: dict[int, tuple[Offer, int]] = {}
         for q in queries:
             for o, s in search_offers(offers, q, sort="price", threshold=70):
@@ -421,7 +446,7 @@ def barcode_lookup(code: str, session: Session = Depends(get_session)):
 @app.get("/api/catalog/search", response_model=list[CatalogItem], tags=["catalog"])
 def catalog_lookup(q: str = Query(..., min_length=2, max_length=80), limit: int = Query(20, ge=1, le=50), session: Session = Depends(get_session)):
     """Specific products to pick for the cart / watchlist: current offers + METRO's catalogue."""
-    return catalog_search(session.exec(select(Offer)).all(), q, limit)
+    return catalog_search(session.exec(_current(select(Offer))).all(), q, limit)
 
 
 # ---- cart -------------------------------------------------------------------
@@ -432,7 +457,7 @@ def cart_optimize(req: CartRequest, session: Session = Depends(get_session)):
     if len(req.items) > 40:
         raise HTTPException(400, "max 40 items")
     stores = [s for s in STORE_NAMES if not req.stores or s.lower() in {x.lower() for x in req.stores}]
-    offers = session.exec(select(Offer).where(Offer.store.in_(stores))).all()
+    offers = session.exec(_current(select(Offer).where(Offer.store.in_(stores)))).all()
     return optimize(req.items, offers, stores)
 
 

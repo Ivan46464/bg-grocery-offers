@@ -23,5 +23,12 @@ export const STORES = {
 };
 
 export const STORE_ORDER = ["Lidl", "Kaufland", "Billa", "Metro"];
+/** The stores' own leaflet pages (also sent by /api/stores as leaflet_url). */
+export const LEAFLETS = {
+  Lidl: "https://www.lidl.bg/l/bg/broshuri",
+  Kaufland: "https://www.kaufland.bg/broshuri.html",
+  Billa: "https://www.billa.bg/promocii/sedmichna-broshura",
+  Metro: "https://www.metro.bg/promocii/broshuri",
+};
 
 export const CURRENCY = "€";
